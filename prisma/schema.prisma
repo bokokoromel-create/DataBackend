@@ -1,0 +1,39 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id             String         @id @default(uuid())
+  supabaseId     String         @unique
+  prenom         String
+  nom            String
+  email          String         @unique
+  ville          String
+  arrondissement String?
+  telephone      String?
+  createdAt      DateTime       @default(now())
+  questionnaire  Questionnaire?
+}
+
+model Questionnaire {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id])
+  reponses  Json
+  createdAt DateTime @default(now())
+}
+
+model AdminUser {
+  id              String   @id @default(uuid())
+  supabaseId      String   @unique
+  nomComplet      String
+  email           String   @unique
+  nomOrganisation String
+  fonctionPoste   String
+  secteurInteret  String
+  createdAt       DateTime @default(now())
+}
