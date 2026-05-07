@@ -63,9 +63,9 @@ router.post("/", async (req, res) => {
     });
 
     return res.status(201).json({ id: user.id, email: user.email });
-  } catch (e) {
+  } catch (err: unknown) {
     await supabase.auth.admin.deleteUser(authData.user.id);
-    console.error(e);
+    console.error(err);
     return res.status(500).json({
       message:
         "Impossible d'enregistrer le profil en base. Le compte Auth créé a été annulé.",

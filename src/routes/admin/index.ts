@@ -11,6 +11,18 @@ import { requireAuth } from "../../middleware/auth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import type { AdminPatchProfil, DonneesInscriptionAdmin } from "../../types/front-contract";
 
+type QuestionnaireExport = { createdAt: Date; reponses: unknown };
+type UtilisateurPourExport = {
+  id: string;
+  prenom: string;
+  nom: string;
+  email: string;
+  ville: string;
+  createdAt: Date;
+  questionnaire: QuestionnaireExport | null;
+};
+type AgregationParVille = { ville: string; _count: { id: number } };
+
 const router = Router();
 
 router.post("/register", async (req, res) => {
@@ -54,9 +66,9 @@ router.post("/register", async (req, res) => {
     });
 
     return res.status(201).json({ id: admin.id });
-  } catch (e) {
+  } catch (err: unknown) {
     await supabase.auth.admin.deleteUser(authData.user.id);
-    console.error(e);
+    console.error(err);
     return res.status(500).json({
       message:
         "Impossible d'enregistrer l'admin en base de données.",
@@ -148,19 +160,19 @@ router.patch("/me", requireAuth, requireAdmin, async (req, res) => {
     const { supabaseId: _s, ...publicAdmin } = updated;
     void _s;
     return res.json(publicAdmin);
-  } catch (e) {
+  } catch (err: unknown) {
     if (
-      e instanceof Prisma.PrismaClientKnownRequestError &&
-      e.code === "P2002"
+      err instanceof Prisma.PrismaClientKnownRequestError &&
+      err.code === "P2002"
     ) {
       return res.status(409).json({
         message:
           "Cet e-mail est déjà utilisé par un autre compte (doublon en base).",
         error: "EMAIL_CONFLICT",
-        meta: e.meta ?? undefined,
+        meta: err.meta ?? undefined,
       });
     }
-    console.error(e);
+    console.error(err);
     return res.status(500).json({
       message: "Mise à jour du profil administrateur impossible.",
       error: "PRISMA_UPDATE",
@@ -170,7 +182,7 @@ router.patch("/me", requireAuth, requireAdmin, async (req, res) => {
 
 /** Export agrégé (tous utilisateurs depuis la BDD). Auth admin comme `PATCH /admin/me`. */
 router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
-  const users = await prisma.user.findMany({
+  const users: UtilisateurPourExport[] = await prisma.user.findMany({
     select: {
       id: true,
       prenom: true,
@@ -235,7 +247,7 @@ router.get("/stats", async (_req, res) => {
   return res.json({
     totalUsers,
     totalQuestionnaires,
-    parVille: parVille.map((v) => ({
+    parVille: parVille.map((v: AgregationParVille) => ({
       ville: v.ville,
       count: v._count.id,
     })),

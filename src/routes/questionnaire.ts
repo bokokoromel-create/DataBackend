@@ -72,8 +72,8 @@ router.post("/", requireAuth, async (req, res) => {
         reponses: reponses as Prisma.InputJsonValue,
       },
     });
-  } catch (e) {
-    console.error(e);
+  } catch (err: unknown) {
+    console.error(err);
     return res.status(500).json({
       message: "Enregistrement du questionnaire en base impossible.",
       error: "PRISMA_UPSERT_FAILED",
