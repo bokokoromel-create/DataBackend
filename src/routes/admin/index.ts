@@ -10,6 +10,7 @@ import { supabase } from "../../lib/supabase";
 import { requireAuth } from "../../middleware/auth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import type { AdminPatchProfil, DonneesInscriptionAdmin } from "../../types/front-contract";
+import { broadcast } from "../../events/sse";
 
 type QuestionnaireExport = { createdAt: Date; reponses: unknown };
 type UtilisateurPourExport = {
@@ -68,6 +69,13 @@ router.post("/register", async (req, res) => {
     return res.status(201).json({ id: admin.id });
   } catch (err: unknown) {
     await supabase.auth.admin.deleteUser(authData.user.id);
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P1000") {
+      return res.status(500).json({
+        message:
+          "Connexion base de données impossible (identifiants invalides). Mets à jour DATABASE_URL/DIRECT_URL (Supabase) sur le serveur.",
+        error: "DB_AUTH_FAILED",
+      });
+    }
     console.error(err);
     return res.status(500).json({
       message:
@@ -75,6 +83,84 @@ router.post("/register", async (req, res) => {
       error: "PRISMA_CREATE",
     });
   }
+});
+
+// Login admin (front expects { access_token: "..." })
+router.post("/login", async (req, res) => {
+  if (
+    req.body == null ||
+    typeof req.body !== "object" ||
+    Array.isArray(req.body)
+  ) {
+    return res.status(422).json({
+      message:
+        "Body invalide. Attendu: { email: string, motDePasse: string }",
+      error: "INVALID_BODY",
+    });
+  }
+
+  const { email, motDePasse } = req.body as {
+    email?: unknown;
+    motDePasse?: unknown;
+  };
+
+  if (
+    typeof email !== "string" ||
+    !email.trim() ||
+    typeof motDePasse !== "string" ||
+    !motDePasse
+  ) {
+    return res.status(422).json({
+      message:
+        "Champs requis: email (string) et motDePasse (string).",
+      error: "VALIDATION_MISSING_FIELDS",
+    });
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: email.trim(),
+    password: motDePasse,
+  });
+
+  if (error || !data.session || !data.user) {
+    return res.status(401).json({
+      message: error?.message ?? "Identifiants invalides.",
+      error: "INVALID_CREDENTIALS",
+    });
+  }
+
+  let adminRow: AdminUser | null = null;
+  try {
+    adminRow = await prisma.adminUser.findUnique({
+      where: { supabaseId: data.user.id },
+    });
+  } catch (err: unknown) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P1000") {
+      return res.status(500).json({
+        message:
+          "Connexion base de données impossible (identifiants invalides). Mets à jour DATABASE_URL/DIRECT_URL (Supabase) sur le serveur.",
+        error: "DB_AUTH_FAILED",
+      });
+    }
+    console.error(err);
+    return res.status(500).json({
+      message: "Erreur serveur lors de la vérification admin.",
+      error: "ADMIN_LOOKUP_FAILED",
+    });
+  }
+  if (!adminRow) {
+    return res.status(403).json({
+      message: "Accès réservé aux administrateurs.",
+      error: "FORBIDDEN_NOT_ADMIN",
+    });
+  }
+
+  return res.json({
+    access_token: data.session.access_token,
+    refresh_token: data.session.refresh_token,
+    expires_in: data.session.expires_in,
+    token_type: data.session.token_type,
+  });
 });
 
 /** Paramètres admin : Bearer obligatoire (alignement prod) + compte existant dans `AdminUser`. */
@@ -159,6 +245,13 @@ router.patch("/me", requireAuth, requireAdmin, async (req, res) => {
 
     const { supabaseId: _s, ...publicAdmin } = updated;
     void _s;
+    broadcast(
+      {
+        type: "admin.profile.updated",
+        data: { reason: "admin profile updated" },
+      },
+      { scope: "admin" },
+    );
     return res.json(publicAdmin);
   } catch (err: unknown) {
     if (

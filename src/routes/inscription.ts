@@ -13,6 +13,7 @@ import { inscriptionInvalidBody } from "../lib/exampleCurls";
 import { prisma } from "../lib/prisma";
 import { supabase } from "../lib/supabase";
 import type { DonneesInscriptionProfil } from "../types/front-contract";
+import { broadcast } from "../events/sse";
 
 const router = Router();
 
@@ -62,6 +63,13 @@ router.post("/", async (req, res) => {
       },
     });
 
+    broadcast(
+      {
+        type: "participant.created",
+        data: { reason: "new participant" },
+      },
+      { scope: "admin" },
+    );
     return res.status(201).json({ id: user.id, email: user.email });
   } catch (err: unknown) {
     await supabase.auth.admin.deleteUser(authData.user.id);

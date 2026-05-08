@@ -1,5 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
-import type { AdminUser } from "@prisma/client";
+import { Prisma, type AdminUser } from "@prisma/client";
 import { prisma } from "../lib/prisma";
 
 /**
@@ -24,9 +24,25 @@ export async function requireAdmin(
     });
   }
 
-  const adminUser = await prisma.adminUser.findUnique({
-    where: { supabaseId: supabaseUser.id },
-  });
+  let adminUser: AdminUser | null = null;
+  try {
+    adminUser = await prisma.adminUser.findUnique({
+      where: { supabaseId: supabaseUser.id },
+    });
+  } catch (err: unknown) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P1000") {
+      return res.status(500).json({
+        message:
+          "Connexion base de données impossible (identifiants invalides). Vérifie DATABASE_URL/DIRECT_URL sur le serveur.",
+        error: "DB_AUTH_FAILED",
+      });
+    }
+    console.error(err);
+    return res.status(500).json({
+      message: "Erreur serveur lors de la vérification admin.",
+      error: "ADMIN_LOOKUP_FAILED",
+    });
+  }
 
   if (!adminUser) {
     return res.status(403).json({

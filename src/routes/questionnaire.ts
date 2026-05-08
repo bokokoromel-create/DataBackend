@@ -16,6 +16,7 @@ import { supabase } from "../lib/supabase";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import type { ProfilReponses } from "../types/front-contract";
+import { broadcast } from "../events/sse";
 
 const router = Router();
 
@@ -117,6 +118,13 @@ router.post("/", requireAuth, async (req, res) => {
     });
   }
 
+  broadcast(
+    {
+      type: "participant.questionnaire.updated",
+      data: { reason: "questionnaire upserted" },
+    },
+    { scope: "admin" },
+  );
   return res.status(201).json(questionnaire);
 });
 
