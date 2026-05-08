@@ -15,7 +15,7 @@ const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 if (!url || !serviceRoleKey) {
   throw new Error(
-    "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY doivent être définis dans .env",
+    "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY doivent être définis dans les variables d'environnement du serveur (Railway: Service → Variables).",
   );
 }
 

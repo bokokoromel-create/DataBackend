@@ -9,7 +9,7 @@ function createPrismaClient() {
 
   if (!url) {
     throw new Error(
-      "DATABASE_URL ou DIRECT_URL doit être défini dans les variables d'environnement du serveur (pas seulement un fichier .env absent au runtime). Pour Supabase : URL « pooling » en DATABASE_URL recommandée ; sinon DIRECT_URL (session/direct) peut suffire.",
+      "DATABASE_URL ou DIRECT_URL doit être défini dans les variables d'environnement du serveur. Sur Railway: Service → Variables. Pour Supabase : URL pooler (6543 + ?pgbouncer=true) en DATABASE_URL recommandée ; sinon DIRECT_URL (5432) peut suffire.",
     );
   }
 

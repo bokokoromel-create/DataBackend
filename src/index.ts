@@ -5,8 +5,18 @@ import dotenv from "dotenv";
 dotenv.config();
 
 const app = express();
-app.use(cors({ origin: "http://localhost:3000", credentials: true }));
-app.use(express.json());
+
+const corsOrigin =
+  process.env.CORS_ORIGIN?.trim() ||
+  process.env.FRONTEND_URL?.trim() ||
+  "http://localhost:3000";
+
+app.use(cors({ origin: corsOrigin, credentials: true }));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
 
 import authRoutes from "./routes/auth";
 import inscriptionRoutes from "./routes/inscription";
