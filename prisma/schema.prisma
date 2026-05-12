@@ -7,16 +7,17 @@ datasource db {
 }
 
 model User {
-  id             String         @id @default(uuid())
-  supabaseId     String         @unique
-  prenom         String
-  nom            String
-  email          String         @unique
-  ville          String
-  arrondissement String?
-  telephone      String?
-  createdAt      DateTime       @default(now())
-  questionnaire  Questionnaire?
+  id              String            @id @default(uuid())
+  supabaseId      String            @unique
+  prenom          String
+  nom             String
+  email           String            @unique
+  ville           String
+  arrondissement  String?
+  telephone       String?
+  createdAt       DateTime          @default(now())
+  questionnaire   Questionnaire?
+  sondageReponses SondageReponse[]
 }
 
 model Questionnaire {
@@ -36,4 +37,34 @@ model AdminUser {
   fonctionPoste   String
   secteurInteret  String
   createdAt       DateTime @default(now())
+}
+
+model Evenement {
+  id          String   @id @default(uuid())
+  titre       String
+  debutAt     DateTime
+  lieu        String?
+  description String?
+  createdAt   DateTime @default(now())
+}
+
+model Sondage {
+  id        String           @id @default(uuid())
+  question  String
+  options   String[]
+  actif     Boolean          @default(true)
+  createdAt DateTime         @default(now())
+  reponses  SondageReponse[]
+}
+
+model SondageReponse {
+  id        String   @id @default(uuid())
+  sondageId String
+  userId    String
+  option    String
+  createdAt DateTime @default(now())
+  sondage   Sondage  @relation(fields: [sondageId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([sondageId, userId])
 }
