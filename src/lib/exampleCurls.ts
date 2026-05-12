@@ -3,9 +3,10 @@ import type {
   DonneesInscriptionProfil,
   ProfilReponses,
 } from "../types/front-contract";
+import { readEnv } from "./envRead";
 
 function baseUrl(): string {
-  const port = process.env.PORT || 4000;
+  const port = readEnv("PORT") ?? 4000;
   return `http://localhost:${port}`;
 }
 

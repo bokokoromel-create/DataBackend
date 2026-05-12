@@ -1,36 +1,38 @@
+import "./loadEnv";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-
-dotenv.config();
-
-const app = express();
-
-const corsOrigin =
-  process.env.CORS_ORIGIN?.trim() ||
-  process.env.FRONTEND_URL?.trim() ||
-  "http://localhost:3000";
-
-app.use(cors({ origin: corsOrigin, credentials: true }));
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || "1mb" }));
-
-app.get("/health", (_req, res) => {
-  res.json({ ok: true });
-});
-
+import { readEnv } from "./lib/envRead";
 import authRoutes from "./routes/auth";
 import inscriptionRoutes from "./routes/inscription";
 import profilRoutes from "./routes/profil";
 import questionnaireRoutes from "./routes/questionnaire";
 import adminRoutes from "./routes/admin/index";
+import meEvenementsRoutes from "./routes/me/evenements";
+import meSondagesRoutes from "./routes/me/sondages";
 import { attachSseClient } from "./events/sse";
 import { supabase } from "./lib/supabase";
 import { prisma } from "./lib/prisma";
+
+const app = express();
+
+const corsOrigin =
+  readEnv("CORS_ORIGIN") ||
+  readEnv("FRONTEND_URL") ||
+  "http://localhost:3000";
+
+app.use(cors({ origin: corsOrigin, credentials: true }));
+app.use(express.json({ limit: readEnv("JSON_BODY_LIMIT") || "1mb" }));
+
+app.get("/health", (_req, res) => {
+  res.json({ ok: true });
+});
 
 app.use("/auth", authRoutes);
 app.use("/inscription", inscriptionRoutes);
 app.use("/me", profilRoutes);
 app.use("/me/questionnaire", questionnaireRoutes);
+app.use("/me/evenements", meEvenementsRoutes);
+app.use("/me/sondages", meSondagesRoutes);
 app.use("/admin", adminRoutes);
 
 // JSON parse errors should return JSON (not HTML) for the frontend
@@ -95,5 +97,5 @@ app.get("/events", async (req, res) => {
   attachSseClient(req, res, "admin");
 });
 
-const PORT = process.env.PORT || 4000;
+const PORT = readEnv("PORT") || 4000;
 app.listen(PORT, () => console.log(`Backend démarré sur le port ${PORT}`));

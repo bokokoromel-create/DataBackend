@@ -11,6 +11,8 @@ import { requireAuth } from "../../middleware/auth";
 import { requireAdmin } from "../../middleware/requireAdmin";
 import type { AdminPatchProfil, DonneesInscriptionAdmin } from "../../types/front-contract";
 import { broadcast } from "../../events/sse";
+import evenementsRoutes from "./evenements";
+import sondagesRoutes from "./sondages";
 
 type QuestionnaireExport = { createdAt: Date; reponses: unknown };
 type UtilisateurPourExport = {
@@ -25,6 +27,9 @@ type UtilisateurPourExport = {
 type AgregationParVille = { ville: string; _count: { id: number } };
 
 const router = Router();
+
+router.use("/evenements", evenementsRoutes);
+router.use("/sondages", sondagesRoutes);
 
 router.post("/register", async (req, res) => {
   if (

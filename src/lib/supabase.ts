@@ -7,17 +7,41 @@
  * Le front continue d’appeler **Supabase avec la clé anon** directement ; les URLs projet n’ont pas
  * à passer par cette API Node. Voir variables `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`.
  */
-import "dotenv/config";
 import { createClient } from "@supabase/supabase-js";
+import { readEnv } from "./envRead";
 
-const url = process.env.SUPABASE_URL;
-const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+function assertValidSupabaseHttpUrl(url: string, envName: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    throw new Error(
+      `${envName} n’est pas une URL HTTP(S) valide après trim/normalisation — vérifie le .env ou les variables du conteneur (Railway, Docker --env-file, etc.). Exemple attendu : https://<ref>.supabase.co`,
+    );
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw new Error(
+      `${envName} doit utiliser le schéma http ou https (reçu : « ${parsed.protocol} »). Une URL Postgres (postgresql://…) ne convient pas ici.`,
+    );
+  }
+}
 
-if (!url || !serviceRoleKey) {
+const url = readEnv("SUPABASE_URL");
+const serviceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+
+if (!url) {
   throw new Error(
-    "SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY doivent être définis dans les variables d'environnement du serveur (Railway: Service → Variables).",
+    "SUPABASE_URL est absent ou vide après trim/normalisation — définis-le dans les variables d’environnement du serveur (fichier .env, Railway → Variables, ou Docker --env-file).",
   );
 }
+
+if (!serviceRoleKey) {
+  throw new Error(
+    "SUPABASE_SERVICE_ROLE_KEY est absent ou vide après trim/normalisation — clé secret service role depuis le tableau Supabase (Project Settings → API).",
+  );
+}
+
+assertValidSupabaseHttpUrl(url, "SUPABASE_URL");
 
 export const supabase = createClient(url, serviceRoleKey, {
   auth: {
