@@ -23,8 +23,16 @@ const corsOrigin =
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: readEnv("JSON_BODY_LIMIT") || "1mb" }));
 
+app.get("/", (_req, res) => {
+  res.json({
+    message: "Data Horizon API",
+    status: "online",
+    version: "1.0.0",
+  });
+});
+
 app.get("/health", (_req, res) => {
-  res.json({ ok: true });
+  res.json({ status: "ok" });
 });
 
 app.use("/auth", authRoutes);
