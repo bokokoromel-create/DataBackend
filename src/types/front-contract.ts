@@ -47,3 +47,28 @@ export interface AdminPatchProfil {
   secteurInteret: string;
   motDePasse?: string | null | undefined;
 }
+
+/** Ligne participant renvoyée dans les SSE et l’export admin. */
+export interface ParticipantResume {
+  idParticipant: string;
+  prenom: string;
+  nom: string;
+  email: string;
+  ville: string;
+  statut: string;
+  inscriptionAt: string;
+  questionnaireSoumisAt: string | null;
+  questionnaireComplet: boolean;
+}
+
+/** Événements SSE (`GET /events?scope=admin&token=...`). */
+export type SseEvent =
+  | { type: "hello"; data: { scope: "public" | "admin" } }
+  | { type: "participant.created"; data: { participant: ParticipantResume } }
+  | {
+      type: "participant.questionnaire.updated";
+      data: { reason: string; idParticipant?: string };
+    }
+  | { type: "evenement.updated"; data: { reason: string } }
+  | { type: "sondage.updated"; data: { reason: string } }
+  | { type: "admin.profile.updated"; data: { reason: string } };

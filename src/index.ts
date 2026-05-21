@@ -70,7 +70,14 @@ app.get("/events", async (req, res) => {
 
   // EventSource cannot send custom headers reliably from the browser,
   // so we accept a token in query string for now: /events?token=...&scope=admin
-  const token = typeof req.query.token === "string" ? req.query.token : "";
+  // Le proxy Next relaie aussi `access_token` ou `Authorization: Bearer`.
+  const authHeader = req.headers.authorization ?? "";
+  const bearer =
+    authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const token =
+    (typeof req.query.token === "string" ? req.query.token : "") ||
+    (typeof req.query.access_token === "string" ? req.query.access_token : "") ||
+    bearer;
   if (!token) {
     res.status(401).json({
       message:

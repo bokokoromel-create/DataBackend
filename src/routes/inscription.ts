@@ -12,7 +12,10 @@ import { Router } from "express";
 import { inscriptionInvalidBody } from "../lib/exampleCurls";
 import { prisma } from "../lib/prisma";
 import { supabase } from "../lib/supabase";
-import type { DonneesInscriptionProfil } from "../types/front-contract";
+import type {
+  DonneesInscriptionProfil,
+  ParticipantResume,
+} from "../types/front-contract";
 import { broadcast } from "../events/sse";
 
 const router = Router();
@@ -63,11 +66,20 @@ router.post("/", async (req, res) => {
       },
     });
 
+    const participant: ParticipantResume = {
+      idParticipant: user.id,
+      prenom: user.prenom,
+      nom: user.nom,
+      email: user.email,
+      ville: user.ville,
+      statut: "Non renseigné",
+      inscriptionAt: user.createdAt.toISOString(),
+      questionnaireSoumisAt: null,
+      questionnaireComplet: false,
+    };
+
     broadcast(
-      {
-        type: "participant.created",
-        data: { reason: "new participant" },
-      },
+      { type: "participant.created", data: { participant } },
       { scope: "admin" },
     );
     return res.status(201).json({ id: user.id, email: user.email });
