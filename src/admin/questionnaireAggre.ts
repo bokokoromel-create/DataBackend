@@ -3,6 +3,15 @@
  * Clés alignées sur les formulaires front courants (besoins, obstacles, ville user).
  */
 
+export const BESOINS_CANONIQUES = [
+  "Trouver un emploi",
+  "Accéder à une formation",
+  "Lancer une activité",
+  "Obtenir un financement",
+] as const;
+
+export type BesoinCanonique = (typeof BESOINS_CANONIQUES)[number];
+
 const BESOIN_ARRAY_KEYS = [
   "besoins",
   "typesBesoins",
@@ -25,6 +34,33 @@ const OBSTACLE_KEYS = [
   "obstacle",
 ];
 
+function slug(s: string): string {
+  return s
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+const BESOIN_ALIAS_BY_SLUG: Record<string, BesoinCanonique> = {};
+for (const c of BESOINS_CANONIQUES) BESOIN_ALIAS_BY_SLUG[slug(c)] = c;
+BESOIN_ALIAS_BY_SLUG[slug("Emploi")] = "Trouver un emploi";
+BESOIN_ALIAS_BY_SLUG[slug("Trouver emploi")] = "Trouver un emploi";
+BESOIN_ALIAS_BY_SLUG[slug("Formation")] = "Accéder à une formation";
+BESOIN_ALIAS_BY_SLUG[slug("Acceder à une formation")] = "Accéder à une formation";
+BESOIN_ALIAS_BY_SLUG[slug("Activité")] = "Lancer une activité";
+BESOIN_ALIAS_BY_SLUG[slug("Lancer activité")] = "Lancer une activité";
+BESOIN_ALIAS_BY_SLUG[slug("Financement")] = "Obtenir un financement";
+BESOIN_ALIAS_BY_SLUG[slug("Obtenir financement")] = "Obtenir un financement";
+
+/** Renvoie le libellé canonique s’il est connu, sinon le label nettoyé tel quel. */
+export function canonBesoinLabel(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  const s = slug(trimmed);
+  return BESOIN_ALIAS_BY_SLUG[s] ?? trimmed;
+}
+
 export type ComptageLabel = { label: string; count: number };
 
 export type PrioriteParZone = {
@@ -34,6 +70,7 @@ export type PrioriteParZone = {
 };
 
 export type StatsQuestionnairesDetail = {
+  totalQuestionnairesActifs: number;
   totalObstaclesSelectionnes: number;
   besoinsParType: ComptageLabel[];
   prioritesParZone: PrioriteParZone[];
@@ -75,17 +112,41 @@ function collectFromKeys(
   return out;
 }
 
-function besoinsDepuisReponses(reponses: unknown): string[] {
+/** Tous les besoins évoqués dans le questionnaire (tableau de libellés canoniques quand possible). */
+export function besoinsDepuisReponses(reponses: unknown): string[] {
   if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
     return [];
   }
   const obj = reponses as Record<string, unknown>;
-  const fromArrays = collectFromKeys(obj, BESOIN_ARRAY_KEYS);
-  const fromSingles = collectFromKeys(obj, BESOIN_SINGLE_KEYS);
-  return [...fromArrays, ...fromSingles];
+  const all = [
+    ...collectFromKeys(obj, BESOIN_ARRAY_KEYS),
+    ...collectFromKeys(obj, BESOIN_SINGLE_KEYS),
+  ];
+  return all.map(canonBesoinLabel).filter((s) => s.length > 0);
 }
 
-function obstaclesDepuisReponses(reponses: unknown): string[] {
+/** Besoin principal déclaré (canonique). Vide si non renseigné. */
+export function besoinPrincipalDepuisReponses(reponses: unknown): string {
+  if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
+    return "";
+  }
+  const obj = reponses as Record<string, unknown>;
+  const singles = collectFromKeys(obj, BESOIN_SINGLE_KEYS);
+  if (singles.length > 0) {
+    const canon = canonBesoinLabel(singles[0]);
+    if (canon) return canon;
+  }
+  // fallback : 1er élément des tableaux
+  const arrays = collectFromKeys(obj, BESOIN_ARRAY_KEYS);
+  if (arrays.length > 0) {
+    const canon = canonBesoinLabel(arrays[0]);
+    if (canon) return canon;
+  }
+  return "";
+}
+
+/** Liste textuelle des obstacles cochés (libellés bruts trimés). */
+export function obstaclesDepuisReponses(reponses: unknown): string[] {
   if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
     return [];
   }
@@ -111,11 +172,31 @@ function modeLabel(counts: Map<string, number>): string {
   return best;
 }
 
+/** Garantit la présence des 4 libellés canoniques (count 0 si absent), suivi des éventuels libellés libres. */
+function withCanonical(counts: Map<string, number>): ComptageLabel[] {
+  const out: ComptageLabel[] = BESOINS_CANONIQUES.map((label) => ({
+    label,
+    count: counts.get(label) ?? 0,
+  }));
+
+  const extra: ComptageLabel[] = [];
+  for (const [label, count] of counts) {
+    if ((BESOINS_CANONIQUES as readonly string[]).includes(label)) continue;
+    extra.push({ label, count });
+  }
+  extra.sort(
+    (a, b) => b.count - a.count || a.label.localeCompare(b.label, "fr"),
+  );
+
+  return [...out, ...extra];
+}
+
 export function aggreStatsQuestionnaires(
   rows: { ville: string; reponses: unknown }[],
 ): StatsQuestionnairesDetail {
   const besoinsGlobal = new Map<string, number>();
   let totalObstaclesSelectionnes = 0;
+  let totalQuestionnairesActifs = 0;
 
   const parVille = new Map<
     string,
@@ -125,6 +206,9 @@ export function aggreStatsQuestionnaires(
   for (const { ville, reponses } of rows) {
     const besoins = besoinsDepuisReponses(reponses);
     const obstacles = obstaclesDepuisReponses(reponses);
+    const besoinPrincipal = besoinPrincipalDepuisReponses(reponses);
+
+    if (besoinPrincipal) totalQuestionnairesActifs += 1;
     totalObstaclesSelectionnes += obstacles.length;
 
     incrementMap(besoinsGlobal, besoins);
@@ -138,9 +222,7 @@ export function aggreStatsQuestionnaires(
     bucket.obstacles += obstacles.length;
   }
 
-  const besoinsParType = [...besoinsGlobal.entries()]
-    .map(([label, count]) => ({ label, count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, "fr"));
+  const besoinsParType = withCanonical(besoinsGlobal);
 
   const prioritesParZone = [...parVille.entries()]
     .map(([ville, data]) => ({
@@ -151,6 +233,7 @@ export function aggreStatsQuestionnaires(
     .sort((a, b) => a.ville.localeCompare(b.ville, "fr"));
 
   return {
+    totalQuestionnairesActifs,
     totalObstaclesSelectionnes,
     besoinsParType,
     prioritesParZone,

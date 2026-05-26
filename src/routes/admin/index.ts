@@ -4,7 +4,11 @@ import {
   statutDepuisReponses,
   statutsOrdonnesAggre,
 } from "../../admin/participantStatut";
-import { aggreStatsQuestionnaires } from "../../admin/questionnaireAggre";
+import {
+  aggreStatsQuestionnaires,
+  besoinPrincipalDepuisReponses,
+  obstaclesDepuisReponses,
+} from "../../admin/questionnaireAggre";
 import { adminRegisterInvalidBody } from "../../lib/exampleCurls";
 import { prisma } from "../../lib/prisma";
 import { supabase } from "../../lib/supabase";
@@ -325,11 +329,15 @@ router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
   }
 
   const participants = users.map((u) => {
+    const reponses = u.questionnaire?.reponses ?? null;
     const statut = u.questionnaire
-      ? statutDepuisReponses(u.questionnaire.reponses)
+      ? statutDepuisReponses(reponses)
       : "Non renseigné";
 
     nombreParStatut[statut] = (nombreParStatut[statut] ?? 0) + 1;
+
+    const besoinPrincipal = besoinPrincipalDepuisReponses(reponses);
+    const obstaclesArr = obstaclesDepuisReponses(reponses);
 
     return {
       idParticipant: u.id,
@@ -338,9 +346,13 @@ router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
       email: u.email,
       ville: u.ville,
       statut,
+      besoinPrincipal,
+      obstacles: obstaclesArr,
+      obstaclesText: obstaclesArr.join(" ; "),
       inscriptionAt: u.createdAt.toISOString(),
+      enregistreLe: u.createdAt.toISOString(),
       questionnaireSoumisAt: u.questionnaire?.createdAt.toISOString() ?? null,
-      questionnaireComplet: Boolean(u.questionnaire),
+      questionnaireComplet: Boolean(reponses && besoinPrincipal),
     };
   });
 
@@ -359,11 +371,10 @@ router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
   });
 });
 
-router.get("/stats", async (_req, res) => {
-  const [totalUsers, totalQuestionnaires, totalDiplomes, parVille, questionnaires] =
+router.get("/stats", requireAuth, requireAdmin, async (_req, res) => {
+  const [totalUsers, totalDiplomes, parVille, questionnaires] =
     await Promise.all([
       prisma.user.count(),
-      prisma.questionnaire.count(),
       prisma.diplome.count(),
       prisma.user.groupBy({ by: ["ville"], _count: { id: true } }),
       prisma.questionnaire.findMany({
@@ -383,7 +394,7 @@ router.get("/stats", async (_req, res) => {
 
   return res.json({
     totalUsers,
-    totalQuestionnaires,
+    totalQuestionnaires: detail.totalQuestionnairesActifs,
     totalDiplomes,
     parVille: parVille.map((v: AgregationParVille) => ({
       ville: v.ville,
