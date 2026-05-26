@@ -4,6 +4,7 @@ import {
   statutDepuisReponses,
   statutsOrdonnesAggre,
 } from "../../admin/participantStatut";
+import { aggreStatsQuestionnaires } from "../../admin/questionnaireAggre";
 import { adminRegisterInvalidBody } from "../../lib/exampleCurls";
 import { prisma } from "../../lib/prisma";
 import { supabase } from "../../lib/supabase";
@@ -13,6 +14,7 @@ import type { AdminPatchProfil, DonneesInscriptionAdmin } from "../../types/fron
 import { broadcast } from "../../events/sse";
 import evenementsRoutes from "./evenements";
 import sondagesRoutes from "./sondages";
+import diplomesRoutes from "./diplomes";
 
 type QuestionnaireExport = { createdAt: Date; reponses: unknown };
 type UtilisateurPourExport = {
@@ -30,6 +32,7 @@ const router = Router();
 
 router.use("/evenements", evenementsRoutes);
 router.use("/sondages", sondagesRoutes);
+router.use("/diplomes", diplomesRoutes);
 
 router.post("/register", async (req, res) => {
   if (
@@ -166,6 +169,27 @@ router.post("/login", async (req, res) => {
     expires_in: data.session.expires_in,
     token_type: data.session.token_type,
   });
+});
+
+/** Invalide la session courante (refresh tokens). Le JWT access reste valide jusqu’à `exp`. */
+router.post("/logout", requireAuth, requireAdmin, async (req, res) => {
+  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
+  if (!token) {
+    return res.status(401).json({
+      message: "Non authentifié : en-tête Authorization Bearer manquant.",
+      error: "MISSING_BEARER",
+    });
+  }
+
+  const { error } = await supabase.auth.admin.signOut(token, "local");
+  if (error) {
+    return res.status(400).json({
+      message: error.message,
+      error: "LOGOUT_FAILED",
+    });
+  }
+
+  return res.status(204).send();
 });
 
 /** Paramètres admin : Bearer obligatoire (alignement prod) + compte existant dans `AdminUser`. */
@@ -336,19 +360,38 @@ router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
 });
 
 router.get("/stats", async (_req, res) => {
-  const [totalUsers, totalQuestionnaires, parVille] = await Promise.all([
-    prisma.user.count(),
-    prisma.questionnaire.count(),
-    prisma.user.groupBy({ by: ["ville"], _count: { id: true } }),
-  ]);
+  const [totalUsers, totalQuestionnaires, totalDiplomes, parVille, questionnaires] =
+    await Promise.all([
+      prisma.user.count(),
+      prisma.questionnaire.count(),
+      prisma.diplome.count(),
+      prisma.user.groupBy({ by: ["ville"], _count: { id: true } }),
+      prisma.questionnaire.findMany({
+        select: {
+          reponses: true,
+          user: { select: { ville: true } },
+        },
+      }),
+    ]);
+
+  const detail = aggreStatsQuestionnaires(
+    questionnaires.map((q) => ({
+      ville: q.user.ville,
+      reponses: q.reponses,
+    })),
+  );
 
   return res.json({
     totalUsers,
     totalQuestionnaires,
+    totalDiplomes,
     parVille: parVille.map((v: AgregationParVille) => ({
       ville: v.ville,
       count: v._count.id,
     })),
+    totalObstaclesSelectionnes: detail.totalObstaclesSelectionnes,
+    besoinsParType: detail.besoinsParType,
+    prioritesParZone: detail.prioritesParZone,
   });
 });
 

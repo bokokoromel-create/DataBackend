@@ -18,6 +18,18 @@ model User {
   createdAt       DateTime          @default(now())
   questionnaire   Questionnaire?
   sondageReponses SondageReponse[]
+  diplome         Diplome?
+}
+
+model Diplome {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileName    String
+  mimeType    String
+  sizeBytes   Int
+  storagePath String
+  uploadedAt  DateTime @default(now())
 }
 
 model Questionnaire {

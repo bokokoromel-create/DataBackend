@@ -7,13 +7,14 @@ const router = Router();
 // Participant: lire les événements
 router.get("/", requireAuth, async (_req, res) => {
   const evenements = await prisma.evenement.findMany({
-    orderBy: { debutAt: "asc" },
+    orderBy: { debutAt: "desc" },
     select: {
       id: true,
       titre: true,
       debutAt: true,
       lieu: true,
       description: true,
+      createdAt: true,
     },
   });
 
@@ -21,6 +22,7 @@ router.get("/", requireAuth, async (_req, res) => {
     evenements.map((e) => ({
       ...e,
       debutAt: e.debutAt.toISOString(),
+      createdAt: e.createdAt.toISOString(),
     })),
   );
 });

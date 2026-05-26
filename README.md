@@ -6,7 +6,10 @@
 |----------|----------|--------|
 | Recevoir l’inscription | `POST /inscription/` | Crée Supabase Auth + ligne `User` (Prisma) |
 | Temps réel admin | `GET /events` | SSE ; après chaque inscription → `participant.created` |
-| Totaux | `GET /admin/stats` | `totalUsers`, `totalQuestionnaires`, `parVille` |
+| Totaux / KPI | `GET /admin/stats` | Utilisateurs, questionnaires, diplômes, besoins, obstacles, par ville |
+| Diplômes participant | `POST/PUT/GET /me/diplome` | Multipart `file` (PDF/images, 4 Mo), Bearer participant |
+| Diplômes admin | `GET /admin/diplomes`, `GET /admin/diplomes/:id` | Liste + URL signée courte |
+| Déconnexion admin | `POST /admin/logout` | Bearer admin — révoque la session (`scope: local`) |
 | Détail / liste | `GET /admin/export` | Liste `participants` + agrégats par statut (Bearer admin) |
 
 ### 1. Inscription participant
@@ -91,4 +94,10 @@ GET /admin/export
 Authorization: Bearer <ACCESS_TOKEN>
 ```
 
-Variables d’environnement : voir `.env` (`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ORIGIN`, `PORT`).
+### 5. Diplômes (Storage Supabase)
+
+1. Créer un bucket privé `diplomes` (ou la valeur de `SUPABASE_DIPLOMES_BUCKET`).
+2. Appliquer la migration Prisma `20260526120000_diplomes`.
+3. `POST /me/diplome` — `multipart/form-data`, champ `file`.
+
+Variables d’environnement : voir `.env` (`DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `CORS_ORIGIN`, `PORT`, `SUPABASE_DIPLOMES_BUCKET`, `DIPLOME_SIGNED_URL_SECONDS`).

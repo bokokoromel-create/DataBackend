@@ -9,6 +9,7 @@ import questionnaireRoutes from "./routes/questionnaire";
 import adminRoutes from "./routes/admin/index";
 import meEvenementsRoutes from "./routes/me/evenements";
 import meSondagesRoutes from "./routes/me/sondages";
+import meDiplomeRoutes from "./routes/me/diplome";
 import { attachSseClient } from "./events/sse";
 import { supabase } from "./lib/supabase";
 import { prisma } from "./lib/prisma";
@@ -41,6 +42,7 @@ app.use("/me", profilRoutes);
 app.use("/me/questionnaire", questionnaireRoutes);
 app.use("/me/evenements", meEvenementsRoutes);
 app.use("/me/sondages", meSondagesRoutes);
+app.use("/me/diplome", meDiplomeRoutes);
 app.use("/admin", adminRoutes);
 
 // JSON parse errors should return JSON (not HTML) for the frontend

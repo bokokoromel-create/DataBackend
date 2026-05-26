@@ -25,6 +25,37 @@ export interface DonneesInscriptionProfil {
  */
 export type ProfilReponses = Record<string, unknown>;
 
+/** Réponse `GET /me/` — source de vérité profil + questionnaire sidebar. */
+export interface ProfilMeResponse {
+  id: string;
+  prenom: string;
+  nom: string;
+  email: string;
+  ville: string;
+  arrondissement: string | null;
+  telephone: string | null;
+  createdAt: string;
+  questionnaire: {
+    reponses: ProfilReponses;
+    soumisAt: string;
+  } | null;
+}
+
+/** Réponse `GET /admin/stats` (KPI dashboard). */
+export interface StatsAdminResponse {
+  totalUsers: number;
+  totalQuestionnaires: number;
+  totalDiplomes: number;
+  totalObstaclesSelectionnes: number;
+  parVille: { ville: string; count: number }[];
+  besoinsParType: { label: string; count: number }[];
+  prioritesParZone: {
+    ville: string;
+    besoinPrincipal: string;
+    obstacles: number;
+  }[];
+}
+
 /** Body `POST /admin/register` */
 export interface DonneesInscriptionAdmin {
   nomComplet: string;
