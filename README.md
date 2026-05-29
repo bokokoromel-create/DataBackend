@@ -11,7 +11,7 @@ npx prisma migrate deploy
 npm run dev            # http://localhost:4000
 ```
 
-Santé : `GET /health` → `{ "status": "ok" }`.
+Santé : `GET /health` → `{ "status": "ok", "version": "1.0.1" }` (vérifie que Railway a bien redéployé).
 
 ## Routes principales
 
