@@ -206,7 +206,14 @@ En production, token admin requis. Événements : `participant.created`, `partic
 
 ## Déploiement (Railway / Docker)
 
-Le `Dockerfile` exécute `prisma migrate deploy` puis `node dist/index.js`.
+Image **1.0.1** — build multi-stage Alpine, utilisateur non-root, healthcheck sur `/health`.
+
+```bash
+docker build -t datahorizon-api:1.0.1 .
+docker run --env-file .env -p 4000:4000 datahorizon-api:1.0.1
+```
+
+Le conteneur exécute `prisma migrate deploy` puis `node dist/index.js`. Variables d’environnement identiques à Railway (voir ci-dessous).
 
 Variables **obligatoires** sur la plateforme :
 
