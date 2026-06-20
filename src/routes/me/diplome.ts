@@ -97,7 +97,7 @@ async function handleUpload(req: AuthedRequest, res: Response) {
 
   const diplomeId = existing?.id ?? randomUUID();
   const storagePath = storagePathFor(
-    user.id,
+    req.supabaseUser.id,
     diplomeId,
     file.originalname || "diplome",
   );

@@ -26,16 +26,41 @@ export function diplomeMaxBytes(): number {
   return Number.isFinite(n) && n > 0 ? n : DIPLOME_MAX_BYTES_DEFAULT;
 }
 
-/** Chemin objet Storage : `{userId}/{diplomeId}.{ext}` */
+/**
+ * Chemin objet Storage : `{supabaseId}/{diplomeId}.{ext}`
+ * `supabaseId` = `auth.uid()` côté Supabase (aligné RLS Storage si upload direct).
+ */
 export function storagePathFor(
-  userId: string,
+  supabaseId: string,
   diplomeId: string,
   fileName: string,
 ): string {
   const ext = fileName.includes(".")
     ? fileName.slice(fileName.lastIndexOf(".")).toLowerCase()
     : "";
-  return `${userId}/${diplomeId}${ext}`;
+  return `${supabaseId}/${diplomeId}${ext}`;
+}
+
+/** Crée le bucket privé s’il n’existe pas (service role). */
+export async function ensureDiplomeBucket(): Promise<{ error: string | null }> {
+  const bucket = diplomeBucket();
+  const { data: existing, error: listErr } =
+    await supabase.storage.listBuckets();
+  if (listErr) {
+    return { error: listErr.message };
+  }
+  if (existing?.some((b) => b.name === bucket)) {
+    return { error: null };
+  }
+  const { error } = await supabase.storage.createBucket(bucket, {
+    public: false,
+    fileSizeLimit: diplomeMaxBytes(),
+    allowedMimeTypes: [...DIPLOME_MIME_ALLOWED],
+  });
+  if (error && !/already exists/i.test(error.message)) {
+    return { error: error.message };
+  }
+  return { error: null };
 }
 
 export async function uploadDiplomeFile(
@@ -43,6 +68,11 @@ export async function uploadDiplomeFile(
   body: Buffer,
   mimeType: string,
 ): Promise<{ error: string | null }> {
+  const bucketErr = await ensureDiplomeBucket();
+  if (bucketErr.error) {
+    return bucketErr;
+  }
+
   const { error } = await supabase.storage
     .from(diplomeBucket())
     .upload(storagePath, body, {
@@ -51,7 +81,11 @@ export async function uploadDiplomeFile(
     });
 
   if (error) {
-    return { error: error.message };
+    const hint =
+      /row-level security/i.test(error.message)
+        ? " Applique prisma/supabase/diplomes-rls.sql dans Supabase (SQL Editor) ou vérifie SUPABASE_SERVICE_ROLE_KEY sur le serveur."
+        : "";
+    return { error: error.message + hint };
   }
   return { error: null };
 }

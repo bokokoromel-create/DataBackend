@@ -187,8 +187,10 @@ Révoque la session courante côté Supabase (`scope: local`). Le JWT access res
 1. Bucket **privé** `diplomes` (ou `SUPABASE_DIPLOMES_BUCKET`).
 2. Migration `20260526120000_diplomes`.
 3. Upload : `POST /me/diplome` — `multipart/form-data`, champ **`file`** (PDF, JPEG, PNG, WebP, max 4 Mo).
-4. Fichiers sous `{userId}/{diplomeId}.pdf` dans le bucket ; métadonnées en table `Diplome`.
+4. Fichiers sous `{supabaseId}/{diplomeId}.pdf` dans le bucket ; métadonnées en table `Diplome`.
 5. Téléchargement via `downloadUrl` (URL signée, durée `DIPLOME_SIGNED_URL_SECONDS`, défaut 300 s).
+
+**Erreur « row-level security policy »** : exécuter une fois dans Supabase → SQL Editor le fichier `prisma/supabase/diplomes-rls.sql`. Vérifier `SUPABASE_SERVICE_ROLE_KEY` sur Railway (pas la clé anon).
 
 ---
 
