@@ -3,6 +3,10 @@ import type { NextFunction, Request, Response } from "express";
 import { Router } from "express";
 import multer from "multer";
 import { prisma } from "../../lib/prisma";
+import {
+  PARTICIPANT_NOT_FOUND_RESPONSE,
+  resolveParticipantIdFromRequest,
+} from "../../lib/participantUser";
 import { requireAuth } from "../../middleware/auth";
 import { diplomeUpload } from "../../middleware/diplomeUpload";
 import {
@@ -31,13 +35,6 @@ function multerErrorMessage(err: unknown): string {
   return "Erreur lors de l’upload.";
 }
 
-async function resolveParticipantUser(supabaseId: string) {
-  return prisma.user.findUnique({
-    where: { supabaseId },
-    select: { id: true },
-  });
-}
-
 async function serializeOwnDiplome(diplome: {
   id: string;
   fileName: string;
@@ -59,13 +56,10 @@ async function serializeOwnDiplome(diplome: {
 }
 
 async function handleUpload(req: AuthedRequest, res: Response) {
-  const user = await resolveParticipantUser(req.supabaseUser.id);
-  if (!user) {
-    return res.status(404).json({
-      message:
-        "Aucun profil métier pour ce JWT : complète l’inscription via POST /inscription/.",
-      error: "USER_ROW_NOT_FOUND_FOR_JWT",
-    });
+  const userId = await resolveParticipantIdFromRequest(req);
+  if (!userId) {
+    const r = PARTICIPANT_NOT_FOUND_RESPONSE;
+    return res.status(r.status).json(r.body);
   }
 
   const file = req.file;
@@ -91,16 +85,10 @@ async function handleUpload(req: AuthedRequest, res: Response) {
     });
   }
 
-  const existing = await prisma.diplome.findUnique({
-    where: { userId: user.id },
-  });
-
+  const existing = await prisma.diplome.findUnique({ where: { userId } });
+  const fileName = file.originalname || "diplome";
   const diplomeId = existing?.id ?? randomUUID();
-  const storagePath = storagePathFor(
-    req.supabaseUser.id,
-    diplomeId,
-    file.originalname || "diplome",
-  );
+  const storagePath = storagePathFor(req.supabaseUser.id, diplomeId, fileName);
 
   const { error: uploadErr } = await uploadDiplomeFile(
     storagePath,
@@ -119,17 +107,17 @@ async function handleUpload(req: AuthedRequest, res: Response) {
   }
 
   const diplome = await prisma.diplome.upsert({
-    where: { userId: user.id },
+    where: { userId },
     create: {
       id: diplomeId,
-      userId: user.id,
-      fileName: file.originalname || "diplome",
+      userId,
+      fileName,
       mimeType: file.mimetype,
       sizeBytes: file.size,
       storagePath,
     },
     update: {
-      fileName: file.originalname || "diplome",
+      fileName,
       mimeType: file.mimetype,
       sizeBytes: file.size,
       storagePath,
@@ -142,17 +130,13 @@ async function handleUpload(req: AuthedRequest, res: Response) {
 }
 
 router.get("/", requireAuth, async (req, res) => {
-  const authed = req as AuthedRequest;
-  const user = await resolveParticipantUser(authed.supabaseUser.id);
-  if (!user) {
-    return res.status(404).json({
-      message:
-        "Aucun profil métier pour ce JWT : complète l’inscription via POST /inscription/.",
-      error: "USER_ROW_NOT_FOUND_FOR_JWT",
-    });
+  const userId = await resolveParticipantIdFromRequest(req);
+  if (!userId) {
+    const r = PARTICIPANT_NOT_FOUND_RESPONSE;
+    return res.status(r.status).json(r.body);
   }
 
-  const diplome = await prisma.diplome.findUnique({ where: { userId: user.id } });
+  const diplome = await prisma.diplome.findUnique({ where: { userId } });
   if (!diplome) {
     return res.status(404).json({
       message: "Aucun diplôme enregistré.",

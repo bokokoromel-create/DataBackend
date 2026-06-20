@@ -15,6 +15,8 @@ export interface DonneesInscriptionProfil {
   ville: string;
   arrondissement?: string | null;
   telephone?: string | null;
+  age?: number | null;
+  sexe?: string | null;
 }
 
 /**
@@ -25,6 +27,17 @@ export interface DonneesInscriptionProfil {
  */
 export type ProfilReponses = Record<string, unknown>;
 
+/** Body `PATCH /me/` — champs profil modifiables (partiel ou complet). */
+export interface ProfilPatchBody {
+  prenom?: string;
+  nom?: string;
+  ville?: string;
+  arrondissement?: string | null;
+  telephone?: string | null;
+  age?: number | null;
+  sexe?: string | null;
+}
+
 /** Réponse `GET /me/` — source de vérité profil + questionnaire sidebar. */
 export interface ProfilMeResponse {
   id: string;
@@ -34,7 +47,18 @@ export interface ProfilMeResponse {
   ville: string;
   arrondissement: string | null;
   telephone: string | null;
+  age: number | null;
+  sexe: string | null;
   createdAt: string;
+  /** E-mail confirmé côté Supabase Auth. */
+  compteAuthentifie: boolean;
+  /** Alias rétrocompat — même valeur que `profilCertifie`. */
+  emailVerifie: boolean;
+  /** Questionnaire complet (besoin principal renseigné). */
+  profilCertifie: boolean;
+  questionnaireCertifie: boolean;
+  /** Fichier diplôme présent en base. */
+  diplomeVerifie: boolean;
   questionnaire: {
     reponses: ProfilReponses;
     soumisAt: string;
@@ -54,6 +78,8 @@ export interface StatsAdminResponse {
     besoinPrincipal: string;
     obstacles: number;
   }[];
+  utilisateursActifsMensuels: number;
+  parThematique: { thematique: string; count: number }[];
 }
 
 /** Body `POST /admin/register` */
@@ -87,6 +113,10 @@ export interface ParticipantResume {
   email: string;
   ville: string;
   statut: string;
+  age: number | null;
+  sexe: string | null;
+  arrondissement: string | null;
+  niveauEtude: string;
   inscriptionAt: string;
   questionnaireSoumisAt: string | null;
   questionnaireComplet: boolean;

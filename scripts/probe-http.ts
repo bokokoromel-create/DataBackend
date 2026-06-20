@@ -1,6 +1,6 @@
 import "../src/loadEnv";
 import { prisma } from "../src/lib/prisma";
-import { supabase } from "../src/lib/supabase";
+import { signInUserWithPassword, supabase } from "../src/lib/supabase";
 
 const BASE = process.env.PROBE_BASE_URL || "http://localhost:4000";
 const email = `probe-admin-${Date.now()}@example.com`;
@@ -32,8 +32,10 @@ async function main() {
   });
 
   try {
-    const { data: signin, error: signErr } =
-      await supabase.auth.signInWithPassword({ email, password });
+    const { data: signin, error: signErr } = await signInUserWithPassword(
+      email,
+      password,
+    );
     if (signErr || !signin.session) {
       throw new Error("signIn: " + (signErr?.message ?? "no session"));
     }

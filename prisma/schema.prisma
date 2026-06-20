@@ -7,18 +7,24 @@ datasource db {
 }
 
 model User {
-  id              String            @id @default(uuid())
-  supabaseId      String            @unique
-  prenom          String
-  nom             String
-  email           String            @unique
-  ville           String
-  arrondissement  String?
-  telephone       String?
-  createdAt       DateTime          @default(now())
-  questionnaire   Questionnaire?
-  sondageReponses SondageReponse[]
-  diplome         Diplome?
+  id                       String                    @id @default(uuid())
+  supabaseId               String                    @unique
+  prenom                   String
+  nom                      String
+  email                    String                    @unique
+  ville                    String
+  arrondissement           String?
+  telephone                String?
+  age                      Int?
+  sexe                     String?
+  lastActiveAt             DateTime?
+  createdAt                DateTime                  @default(now())
+  questionnaire            Questionnaire?
+  sondageReponses          SondageReponse[]
+  diplome                  Diplome?
+  gamification             UserGamification?
+  publicationReactions     PublicationReaction[]
+  publicationCommentaires  PublicationCommentaire[]
 }
 
 model Diplome {
@@ -52,18 +58,23 @@ model AdminUser {
 }
 
 model Evenement {
-  id          String   @id @default(uuid())
-  titre       String
-  debutAt     DateTime
-  lieu        String?
-  description String?
-  createdAt   DateTime @default(now())
+  id           String                   @id @default(uuid())
+  titre        String
+  debutAt      DateTime
+  lieu         String?
+  description  String?
+  imageUrl     String?
+  categorie    String?
+  createdAt    DateTime                 @default(now())
+  reactions    PublicationReaction[]
+  commentaires PublicationCommentaire[]
 }
 
 model Sondage {
   id        String           @id @default(uuid())
   question  String
   options   String[]
+  type      String           @default("consultation")
   actif     Boolean          @default(true)
   createdAt DateTime         @default(now())
   reponses  SondageReponse[]
@@ -79,4 +90,48 @@ model SondageReponse {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([sondageId, userId])
+}
+
+model PublicationReaction {
+  id            String    @id @default(uuid())
+  publicationId String
+  userId        String
+  type          String
+  createdAt     DateTime  @default(now())
+  publication   Evenement @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([publicationId, userId])
+}
+
+model PublicationCommentaire {
+  id            String    @id @default(uuid())
+  publicationId String
+  userId        String
+  texte         String
+  createdAt     DateTime  @default(now())
+  publication   Evenement @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Opportunite {
+  id          String    @id @default(uuid())
+  type        String
+  titre       String
+  description String?
+  ville       String?
+  echeanceAt  DateTime?
+  lien        String?
+  imageUrl    String?
+  createdAt   DateTime  @default(now())
+}
+
+model UserGamification {
+  id                      String   @id @default(uuid())
+  userId                  String   @unique
+  user                    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  publicationsConsultees  String[] @default([])
+  consultationsCompletees Int      @default(0)
+  membresInvites          Int      @default(0)
+  updatedAt               DateTime @updatedAt
 }

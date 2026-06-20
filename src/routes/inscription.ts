@@ -1,17 +1,18 @@
 /**
  * Inscription participant.
  *
- * Crée **toujours** d’abord l’utilisateur dans **Supabase Auth** (service role) avec le **même**
- * `email` + `motDePasse` que le formulaire (`email_confirm: true` pour pouvoir appeler
- * `signInWithPassword` tout de suite sans lien e-mail en dev / prod).
- *
- * Puis crée la ligne métier `User` (Prisma) liée par `supabaseId`.
- * Sans la création Auth, le front ne peut pas ouvrir de session JWT pour `/me` ou le questionnaire.
+ * Crée le compte Supabase Auth (ou réutilise un compte existant avec le même mot de passe),
+ * puis la ligne métier `User` (Prisma) liée par `supabaseId`.
  */
 import { Router } from "express";
 import { inscriptionInvalidBody } from "../lib/exampleCurls";
+import { parseInscriptionDemographics } from "../lib/inscriptionDemographics";
+import {
+  createParticipantUser,
+  isAuthEmailAlreadyRegistered,
+} from "../lib/participantUser";
 import { prisma } from "../lib/prisma";
-import { supabase } from "../lib/supabase";
+import { signInUserWithPassword, supabase } from "../lib/supabase";
 import type {
   DonneesInscriptionProfil,
   ParticipantResume,
@@ -37,33 +38,92 @@ router.post("/", async (req, res) => {
     ville,
     arrondissement,
     telephone,
+    age: ageRaw,
+    sexe: sexeRaw,
   } = req.body as DonneesInscriptionProfil;
+
+  const emailNorm = email?.trim().toLowerCase();
+  if (
+    typeof prenom !== "string" ||
+    !prenom.trim() ||
+    typeof nom !== "string" ||
+    !nom.trim() ||
+    typeof emailNorm !== "string" ||
+    !emailNorm ||
+    typeof motDePasse !== "string" ||
+    !motDePasse ||
+    typeof ville !== "string" ||
+    !ville.trim()
+  ) {
+    return res.status(422).json({
+      message:
+        "Champs requis: prenom, nom, email, motDePasse, ville (strings non vides).",
+      error: "VALIDATION_MISSING_FIELDS",
+    });
+  }
+
+  const demo = parseInscriptionDemographics({ age: ageRaw, sexe: sexeRaw });
+  if (!demo.ok) {
+    return res.status(422).json({
+      message: demo.message,
+      error: "VALIDATION_DEMOGRAPHICS",
+    });
+  }
+
+  const existingProfile = await prisma.user.findUnique({
+    where: { email: emailNorm },
+  });
+  if (existingProfile) {
+    return res.status(409).json({
+      message: "Un profil existe déjà pour cet e-mail. Connecte-toi.",
+      error: "EMAIL_ALREADY_REGISTERED",
+    });
+  }
+
+  let supabaseId: string;
 
   const { data: authData, error: authError } =
     await supabase.auth.admin.createUser({
-      email,
+      email: emailNorm,
       password: motDePasse,
       email_confirm: true,
     });
 
   if (authError) {
-    return res.status(400).json({
-      message: authError.message,
-      error: "SUPABASE_AUTH_CREATE_FAILED",
-    });
+    if (!isAuthEmailAlreadyRegistered(authError.message)) {
+      return res.status(400).json({
+        message: authError.message,
+        error: "SUPABASE_AUTH_CREATE_FAILED",
+      });
+    }
+
+    const { data: signin, error: signErr } = await signInUserWithPassword(
+      emailNorm,
+      motDePasse,
+    );
+    if (signErr || !signin.user) {
+      return res.status(400).json({
+        message:
+          "Cet e-mail existe déjà dans Auth. Utilise le mot de passe de ton inscription ou réinitialise-le.",
+        error: "AUTH_EMAIL_EXISTS_PASSWORD_MISMATCH",
+      });
+    }
+    supabaseId = signin.user.id;
+  } else {
+    supabaseId = authData.user.id;
   }
 
   try {
-    const user = await prisma.user.create({
-      data: {
-        supabaseId: authData.user.id,
-        prenom,
-        nom,
-        email,
-        ville,
-        arrondissement: arrondissement ?? null,
-        telephone: telephone ?? null,
-      },
+    const user = await createParticipantUser({
+      supabaseId,
+      prenom: prenom.trim(),
+      nom: nom.trim(),
+      email: emailNorm,
+      ville: ville.trim(),
+      arrondissement: arrondissement ?? null,
+      telephone: telephone ?? null,
+      age: demo.age,
+      sexe: demo.sexe,
     });
 
     const participant: ParticipantResume = {
@@ -73,6 +133,10 @@ router.post("/", async (req, res) => {
       email: user.email,
       ville: user.ville,
       statut: "Non renseigné",
+      age: user.age,
+      sexe: user.sexe,
+      arrondissement: user.arrondissement,
+      niveauEtude: "",
       inscriptionAt: user.createdAt.toISOString(),
       questionnaireSoumisAt: null,
       questionnaireComplet: false,
@@ -84,11 +148,13 @@ router.post("/", async (req, res) => {
     );
     return res.status(201).json({ id: user.id, email: user.email });
   } catch (err: unknown) {
-    await supabase.auth.admin.deleteUser(authData.user.id);
+    if (!authError) {
+      await supabase.auth.admin.deleteUser(supabaseId).catch(() => {});
+    }
     console.error(err);
     return res.status(500).json({
       message:
-        "Impossible d'enregistrer le profil en base. Le compte Auth créé a été annulé.",
+        "Impossible d'enregistrer le profil en base.",
       error: "PRISMA_USER_CREATE_FAILED",
     });
   }

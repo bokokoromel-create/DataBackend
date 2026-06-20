@@ -9,13 +9,14 @@
  * Attention : `user_metadata` est limité en taille (~quelques Ko côté JWT) ; un JSON très gros
  * peut faire échouer la synchro → `SUPABASE_USER_METADATA_SYNC_FAILED` après rollback Prisma.
  */
-import { Router } from "express";
+import { Router, type Request } from "express";
 import { Prisma } from "@prisma/client";
 import { questionnaireInvalidBody } from "../lib/exampleCurls";
 import { supabase } from "../lib/supabase";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 import type { ProfilReponses } from "../types/front-contract";
+import { syncMembresInvitesFromQuestionnaire } from "../lib/gamification";
 import { broadcast } from "../events/sse";
 
 const router = Router();
@@ -45,7 +46,14 @@ router.post("/", requireAuth, async (req, res) => {
     return res.status(400).json(questionnaireInvalidBody());
   }
 
-  const supabaseUser = (req as any).supabaseUser;
+  const supabaseUser = (req as Request & { supabaseUser?: { id: string } })
+    .supabaseUser;
+  if (!supabaseUser) {
+    return res
+      .status(500)
+      .json({ message: "Session invalide.", error: "MISSING_SESSION" });
+  }
+
   const user = await prisma.user.findUnique({
     where: { supabaseId: supabaseUser.id },
   });
@@ -117,6 +125,8 @@ router.post("/", requireAuth, async (req, res) => {
       detail: metaErr.message,
     });
   }
+
+  await syncMembresInvitesFromQuestionnaire(user.id);
 
   broadcast(
     {

@@ -1,264 +1,258 @@
 # Data Horizon — API backend
 
-API Node.js (Express + Prisma + Supabase Auth/Storage) pour le front Next.js Data Horizon.
+API Node.js (Express 5 + Prisma 7 + Supabase Auth/Storage) qui sert le front Next.js Data Horizon.
 
-## Démarrage local
+- **Auth** : Supabase (JWT côté front, validation `auth.getUser` côté backend)
+- **Données** : PostgreSQL via Prisma (driver adapter `@prisma/adapter-pg`)
+- **Fichiers** : Supabase Storage (diplômes privés, images d’événements publiques)
+- **Temps réel** : Server-Sent Events (`GET /events`)
+- **Version** : `1.2.0` (cf. `package.json` et `GET /health`)
+
+---
+
+## 1. Démarrage rapide
 
 ```bash
-cp .env.example .env   # puis remplir les valeurs
-npm install
-npx prisma migrate deploy
-npm run dev            # http://localhost:4000
+cp .env.example .env       # remplir les valeurs (cf. § Variables)
+npm install                # installe Prisma + dépendances et exécute prisma generate
+npx prisma migrate deploy  # applique les migrations sur la base
+npm run dev                # http://localhost:4000 (nodemon + ts-node)
 ```
 
-Santé : `GET /health` → `{ "status": "ok", "version": "1.0.1" }` (vérifie que Railway a bien redéployé).
+Vérification : `GET /health` → `{"status":"ok","version":"1.2.0"}`.
 
-## Routes principales
+### Scripts npm
 
-| Zone | Méthode | Route | Auth |
-|------|---------|-------|------|
-| Inscription | `POST` | `/inscription/` | Public |
-| Profil | `GET` | `/me/` | Bearer participant |
-| Questionnaire | `POST` | `/me/questionnaire/` | Bearer participant |
-| Événements (fil) | `GET` | `/me/evenements` | Bearer participant |
-| Sondages | `GET` | `/me/sondages` | Bearer participant |
-| Réponse sondage | `POST` | `/me/sondages/:id/reponse` | Bearer participant |
-| Diplôme | `POST` / `PUT` / `GET` | `/me/diplome` | Bearer participant (multipart `file`) |
-| Admin login | `POST` | `/admin/login` | Public |
-| Admin register | `POST` | `/admin/register` | Public |
-| Admin logout | `POST` | `/admin/logout` | Bearer admin |
-| KPI dashboard | `GET` | `/admin/stats` | Bearer admin |
-| Export participants | `GET` | `/admin/export` | Bearer admin |
-| Diplômes (liste) | `GET` | `/admin/diplomes` | Bearer admin |
-| Événements CRUD | `POST` / `GET` / `DELETE` | `/admin/evenements` | Bearer admin |
-| Sondages CRUD | `POST` / `GET` / `DELETE` | `/admin/sondages` | Bearer admin |
-| Stats sondages | `GET` | `/admin/sondages/stats` | Bearer admin |
-| Temps réel | `GET` | `/events?scope=admin&token=…` | Token admin (query) |
-
-Contrat partagé avec le front : `src/types/front-contract.ts`.
+| Script                  | Description                                                |
+|-------------------------|------------------------------------------------------------|
+| `npm run dev`           | Serveur en watch mode (`nodemon` + `ts-node`)              |
+| `npm run start:dev`     | Lance le serveur via `ts-node` (sans watch)                |
+| `npm run build`         | `prisma generate` + `tsc` → `dist/`                        |
+| `npm start`             | Lance `node dist/index.js` (production)                    |
+| `npm run typecheck`     | `tsc --noEmit` (CI)                                        |
+| `npm run probe:stats`   | Sonde locale : recalcule `/admin/stats` depuis la base     |
+| `npm run probe:storage` | Sonde locale : upload/list/delete sur le bucket diplômes   |
+| `npm run probe:rapports`| Sonde HTTP : `GET /admin/rapports/<periode>`               |
+| `npm run probe:diplome-upload` | Sonde HTTP : flux complet `POST /me/diplome`        |
 
 ---
 
-## Questionnaire (source de vérité = PostgreSQL)
+## 2. Variables d’environnement
 
-`POST /me/questionnaire/` enregistre le JSON **tel quel** dans `Questionnaire.reponses` (Prisma), lié à l’utilisateur via `userId`. Une synchro vers `user_metadata` Supabase Auth est tentée ; en cas d’échec, l’écriture Postgres est annulée.
+| Variable                         | Rôle                                                                            |
+|----------------------------------|---------------------------------------------------------------------------------|
+| `DATABASE_URL`                   | Postgres pooler Supabase (`6543`, `?pgbouncer=true`) — runtime                  |
+| `DIRECT_URL`                     | Postgres direct Supabase (`5432`) — migrations                                  |
+| `SUPABASE_URL`                   | `https://<project-ref>.supabase.co`                                             |
+| `SUPABASE_SERVICE_ROLE_KEY`      | Clé **service_role** (jamais la clé anon)                                       |
+| `CORS_ORIGIN` *(ou `FRONTEND_URL`)* | Origine autorisée (ex. `https://datahorizon.vercel.app`)                     |
+| `PORT`                           | Port HTTP (défaut `4000`, injecté par Railway en prod)                          |
+| `JSON_BODY_LIMIT`                | Limite Express JSON (défaut `1mb`)                                              |
+| `SUPABASE_DIPLOMES_BUCKET`       | Nom bucket diplômes (défaut `diplomes`, **privé**, créé auto)                   |
+| `DIPLOME_MAX_BYTES`              | Taille max upload diplôme (défaut `4194304` = 4 Mo)                             |
+| `DIPLOME_SIGNED_URL_SECONDS`     | Durée des URLs signées de téléchargement (défaut `300`)                         |
+| `SUPABASE_EVENEMENTS_BUCKET`     | Nom bucket images événements (défaut `evenements`, **public**, créé auto)       |
 
-Exemple de corps (aligné front) :
-
-```json
-{
-  "statut": "Étudiant",
-  "niveauEtude": "Baccalauréat",
-  "besoinPrincipal": "Trouver un emploi",
-  "obstacles": ["Manque de formation", "Manque de financement"],
-  "opportuniteRatee": "Non",
-  "partageDonnees": "Oui",
-  "rassurerait": "",
-  "recommander": "Oui",
-  "nombreInvites": "2"
-}
-```
-
-Libellés `besoinPrincipal` attendus (casse respectée côté front) :
-
-- `Trouver un emploi`
-- `Accéder à une formation`
-- `Lancer une activité`
-- `Obtenir un financement`
-
-`GET /me/` renvoie :
-
-```json
-{
-  "id": "uuid",
-  "prenom": "…",
-  "nom": "…",
-  "email": "…",
-  "ville": "…",
-  "questionnaire": {
-    "reponses": { "besoinPrincipal": "…", "obstacles": ["…"] },
-    "soumisAt": "2026-05-25T10:00:00.000Z"
-  }
-}
-```
+Les buckets Supabase Storage sont créés automatiquement au premier upload. Inutile de les pré-créer.
 
 ---
 
-## `GET /admin/export` (dashboard — liste détaillée)
+## 3. Routes
 
-**Auth :** `Authorization: Bearer <access_token admin>` (`POST /admin/login`).
+### Public
 
-Réponse : enveloppe `{ "participants": [ … ], "parStatut": [ … ], … }`. Chaque participant inclut les champs du questionnaire **à la racine** (le front accepte aussi `questionnaire.reponses` imbriqué) :
+| Méthode | Route              | Description                                  |
+|---------|--------------------|----------------------------------------------|
+| `GET`   | `/`                | Bandeau identification API + version         |
+| `GET`   | `/health`          | Sonde santé (`status`, `version`)            |
+| `POST`  | `/inscription/`    | Crée un participant (Supabase Auth + `User`) |
+| `POST`  | `/admin/register`  | Crée un compte admin                         |
+| `POST`  | `/admin/login`     | Login admin → `access_token` Supabase        |
 
-| Champ | Description |
-|-------|-------------|
-| `idParticipant` | UUID user |
-| `email`, `nom`, `prenom`, `ville` | Identité |
-| `statut` | Déduit du JSON (`statut`, etc.) |
-| `besoinPrincipal` | Ex. `Trouver un emploi` |
-| `obstacles` | Tableau de chaînes |
-| `obstaclesText` | `"A ; B ; C"` |
-| `questionnaireComplet` | `true` si `besoinPrincipal` non vide |
-| `inscriptionAt`, `enregistreLe` | ISO date |
+### Participant (`Authorization: Bearer <access_token>`)
 
-Exemple (extrait) :
+| Méthode      | Route                                          | Description                                              |
+|--------------|------------------------------------------------|----------------------------------------------------------|
+| `GET`        | `/me/`                                         | Profil + statut questionnaire/diplôme/auth               |
+| `PATCH`      | `/me/`                                         | Met à jour profil (`prenom`, `nom`, `ville`, …)          |
+| `POST`       | `/me/provision`                                | Crée le profil métier pour un JWT Auth déjà existant     |
+| `POST`       | `/me/questionnaire/`                           | Upsert questionnaire (Postgres + sync `user_metadata`)   |
+| `GET`        | `/me/evenements`                               | Fil publications (filtres `?day=YYYY-MM-DD`, `publishedFrom/To`) |
+| `GET`        | `/me/sondages`                                 | Sondages actifs (`?type=rapide&#124;consultation`)            |
+| `POST`       | `/me/sondages/:id/reponse`                     | Vote                                                     |
+| `GET/POST/PUT` | `/me/diplome`                                | Lit / dépose son diplôme (multipart, champ `file`)       |
+| `GET/POST`   | `/me/publications/:id/reactions`               | Liste / pose une réaction (`utile`/`interessant`/`a_suivre`) |
+| `GET/POST`   | `/me/publications/:id/commentaires`            | Liste / publie un commentaire                            |
+| `GET`        | `/me/gamification`                             | Compteurs + badges                                       |
+| `POST`       | `/me/gamification/publication-vue`             | Marque une publication vue (idempotent)                  |
+| `POST`       | `/me/gamification/consultation-completee`      | +1 consultation complétée                                |
+| `GET`        | `/me/opportunites`                             | Liste des opportunités                                   |
 
-```json
-{
-  "participants": [
-    {
-      "idParticipant": "uuid",
-      "email": "a@exemple.cg",
-      "nom": "Dupont",
-      "prenom": "Marie",
-      "ville": "Brazzaville",
-      "statut": "Étudiant",
-      "besoinPrincipal": "Trouver un emploi",
-      "obstacles": ["Manque de formation", "Manque de financement"],
-      "obstaclesText": "Manque de formation ; Manque de financement",
-      "questionnaireComplet": true
-    }
-  ]
-}
-```
+### Admin (`Authorization: Bearer <access_token>` admin)
 
----
+| Méthode      | Route                                  | Description                                            |
+|--------------|----------------------------------------|--------------------------------------------------------|
+| `POST`       | `/admin/logout`                        | Révoque la session Supabase courante (scope `local`)   |
+| `PATCH`      | `/admin/me`                            | Met à jour le profil + email/mot de passe Auth         |
+| `GET`        | `/admin/export`                        | Export participants (filtres démographiques en query)  |
+| `GET`        | `/admin/stats`                         | KPIs (mêmes filtres que `/admin/export`)               |
+| `GET/POST/DELETE` | `/admin/evenements`               | CRUD événements (image multipart sur `POST`)           |
+| `GET/POST/DELETE` | `/admin/sondages`                 | CRUD sondages                                          |
+| `GET`        | `/admin/sondages/stats`                | Tableau de comptage des réponses par option            |
+| `GET`        | `/admin/diplomes`                      | Liste diplômes + URLs signées de téléchargement        |
+| `GET`        | `/admin/diplomes/:id`                  | Détail d’un diplôme                                    |
+| `GET/POST`   | `/admin/opportunites`                  | Liste / crée une opportunité                           |
+| `GET`        | `/admin/rapports/:periode`             | Export CSV mensuel (`YYYY-MM`)                         |
 
-## `GET /admin/stats` (dashboard — agrégats)
-
-**Auth :** Bearer admin (obligatoire).
-
-```json
-{
-  "totalUsers": 14,
-  "totalQuestionnaires": 7,
-  "totalDiplomes": 0,
-  "totalObstaclesSelectionnes": 15,
-  "parVille": [{ "ville": "Brazzaville", "count": 14 }],
-  "besoinsParType": [
-    { "label": "Trouver un emploi", "count": 1 },
-    { "label": "Accéder à une formation", "count": 2 },
-    { "label": "Lancer une activité", "count": 2 },
-    { "label": "Obtenir un financement", "count": 2 }
-  ],
-  "prioritesParZone": [
-    {
-      "ville": "Brazzaville",
-      "besoinPrincipal": "Obtenir un financement",
-      "obstacles": 15
-    }
-  ]
-}
-```
-
-| Champ | Règle |
-|-------|--------|
-| `totalUsers` | `User` count |
-| `totalQuestionnaires` | Questionnaires avec `besoinPrincipal` non vide |
-| `totalDiplomes` | Lignes table `Diplome` |
-| `totalObstaclesSelectionnes` | Somme des tailles du tableau `obstacles` |
-| `besoinsParType` | Les 4 libellés canoniques + counts (0 si absent) |
-| `prioritesParZone` | Par ville : besoin le plus fréquent + total obstacles |
-
----
-
-## Admin — auth
-
-```http
-POST /admin/login
-Content-Type: application/json
-
-{ "email": "admin@…", "motDePasse": "…" }
-```
-
-Réponse : `{ "access_token", "refresh_token", "expires_in", "token_type" }`.
-
-```http
-POST /admin/logout
-Authorization: Bearer <access_token>
-```
-
-Révoque la session courante côté Supabase (`scope: local`). Le JWT access reste valide jusqu’à expiration.
-
----
-
-## Diplômes (Supabase Storage)
-
-1. Bucket **privé** `diplomes` (ou `SUPABASE_DIPLOMES_BUCKET`).
-2. Migration `20260526120000_diplomes`.
-3. Upload : `POST /me/diplome` — `multipart/form-data`, champ **`file`** (PDF, JPEG, PNG, WebP, max 4 Mo).
-4. Fichiers sous `{supabaseId}/{diplomeId}.pdf` dans le bucket ; métadonnées en table `Diplome`.
-5. Téléchargement via `downloadUrl` (URL signée, durée `DIPLOME_SIGNED_URL_SECONDS`, défaut 300 s).
-
-**Erreur « row-level security policy »** : exécuter une fois dans Supabase → SQL Editor le fichier `prisma/supabase/diplomes-rls.sql`. Vérifier `SUPABASE_SERVICE_ROLE_KEY` sur Railway (pas la clé anon).
-
----
-
-## SSE admin
-
-`EventSource` n’envoie pas toujours les en-têtes : passer le token en query.
+### Temps réel (SSE)
 
 ```text
 GET /events?scope=admin&token=<ACCESS_TOKEN>
 ```
 
-En production, token admin requis. Événements : `participant.created`, `participant.questionnaire.updated`, `evenement.updated`, `sondage.updated`.
+`EventSource` ne supporte pas l’en-tête `Authorization`, on accepte donc le JWT en query (`token` ou `access_token`). En dev, sans `scope=admin`, le flux est ouvert (utile pour debug front).
+
+Événements émis : `participant.created`, `participant.questionnaire.updated`, `evenement.updated`, `sondage.updated`, `admin.profile.updated`.
 
 ---
 
-## Déploiement (Railway / Docker)
+## 4. Filtres `/admin/export` & `/admin/stats`
 
-Image **1.0.1** — build multi-stage Alpine, utilisateur non-root, healthcheck sur `/health`.
+Tous optionnels, combinables :
 
-```bash
-docker build -t datahorizon-api:1.0.1 .
-docker run --env-file .env -p 4000:4000 datahorizon-api:1.0.1
+- `ageMin`, `ageMax` — bornes incluses
+- `sexe` — comparaison insensible à la casse (`?sexe=femme`)
+- `arrondissement` — comparaison insensible à la casse
+- `niveauEtude` — filtre côté questionnaire (insensible aux accents)
+
+Réponse `/admin/stats` (alignée `src/types/front-contract.ts`) :
+
+```json
+{
+  "totalUsers": 14,
+  "totalQuestionnaires": 7,
+  "totalDiplomes": 3,
+  "parVille": [{ "ville": "Brazzaville", "count": 14 }],
+  "totalObstaclesSelectionnes": 15,
+  "besoinsParType": [{ "label": "Trouver un emploi", "count": 5 }],
+  "prioritesParZone": [
+    { "ville": "Brazzaville", "besoinPrincipal": "Obtenir un financement", "obstacles": 15 }
+  ],
+  "utilisateursActifsMensuels": 9,
+  "parThematique": [
+    { "thematique": "Emploi", "count": 5 },
+    { "thematique": "Formation", "count": 2 },
+    { "thematique": "Entrepreneuriat", "count": 4 },
+    { "thematique": "Numérique", "count": 1 },
+    { "thematique": "Santé", "count": 1 },
+    { "thematique": "Participation citoyenne", "count": 0 }
+  ]
+}
 ```
 
-Le conteneur exécute `prisma migrate deploy` puis `node dist/index.js`. Variables d’environnement identiques à Railway (voir ci-dessous).
+---
 
-Variables **obligatoires** sur la plateforme :
+## 5. Diplômes (Supabase Storage)
 
-| Variable | Rôle |
-|----------|------|
-| `DATABASE_URL` | Postgres pooler Supabase (`6543`, `?pgbouncer=true`) |
-| `DIRECT_URL` | Connexion directe (`5432`, migrations) |
-| `SUPABASE_URL` | `https://<ref>.supabase.co` |
-| `SUPABASE_SERVICE_ROLE_KEY` | Clé **service_role** (pas anon) |
-| `CORS_ORIGIN` | URL du front (ex. `https://….vercel.app`) |
-| `PORT` | `4000` (souvent injecté par Railway) |
+- Bucket privé `SUPABASE_DIPLOMES_BUCKET` (défaut `diplomes`), créé automatiquement.
+- Upload : `POST /me/diplome` — `multipart/form-data`, champ **`file`** (PDF/JPEG/PNG/WebP, ≤ 4 Mo).
+- Stockage : `{supabaseId}/{diplomeId}.{ext}` ; métadonnées en table `Diplome`.
+- Téléchargement : URL signée (`downloadUrl`, durée `DIPLOME_SIGNED_URL_SECONDS`).
 
-Optionnel : `SUPABASE_DIPLOMES_BUCKET`, `DIPLOME_MAX_BYTES`, `DIPLOME_SIGNED_URL_SECONDS`, `JSON_BODY_LIMIT`.
-
-Front Vercel : `NEXT_PUBLIC_API_URL` et `API_URL` = URL Railway **sans** `/` final.
-
-Après chaque push sur `main`, vérifier que Railway déploie le **dernier commit** (Deployments). Local et prod partagent la même base si `DATABASE_URL` pointe vers le même projet Supabase.
+> ⚠️ Le service-role Supabase **bypass** les RLS Storage. Les uploads passent **uniquement** par cette API (pas d’upload direct depuis le navigateur), garantissant l’écriture même avec des policies strictes côté Storage.
 
 ---
 
-## Tests rapides (curl)
+## 6. Événements / Publications
+
+`POST /admin/evenements` accepte `multipart/form-data` : tous les champs texte plus une image optionnelle (champ `image`, jpeg/png/webp/gif, ≤ 5 Mo).
+
+Catégories acceptées (libre, mais validées) : `concours`, `bourse`, `formation`, `emploi`, `evenement`, `entrepreneuriat`, `numerique`, `innovation`.
+
+L’image est uploadée dans le bucket `evenements` (créé auto, public). En cas d’échec Storage, l’événement est rollbacké.
+
+---
+
+## 7. Schéma Prisma (résumé)
+
+| Modèle                    | Notes                                                                  |
+|---------------------------|------------------------------------------------------------------------|
+| `User`                    | `supabaseId` unique, `lastActiveAt` pour le MAU, `age`/`sexe` optionnels |
+| `Diplome`                 | 1-1 `User`, `storagePath` Supabase Storage                             |
+| `Questionnaire`           | 1-1 `User`, `reponses Json`                                            |
+| `Evenement`               | `imageUrl`, `categorie`, `createdAt` (= date de publication)           |
+| `Sondage` / `SondageReponse` | `type` ∈ {`rapide`, `consultation`}                                 |
+| `PublicationReaction`     | `(publicationId, userId)` unique, type ∈ {`utile`, `interessant`, `a_suivre`} |
+| `PublicationCommentaire`  | Commentaires libres associés à une publication                          |
+| `Opportunite`             | `type`, `titre`, `echeanceAt`, `lien`, `imageUrl`                      |
+| `UserGamification`        | Compteurs `publicationsConsultees`, `consultationsCompletees`, `membresInvites` |
+| `AdminUser`               | Compte admin lié à un Supabase Auth user                               |
+
+Migrations : voir `prisma/migrations/`.
+
+---
+
+## 8. Déploiement
+
+### Image Docker (Railway / Docker Hub)
 
 ```bash
+docker build --build-arg API_VERSION=$(node -p "require('./package.json').version") -t datahorizon-api:1.2.0 .
+docker run --env-file .env -p 4000:4000 datahorizon-api:1.2.0
+```
+
+Le conteneur exécute `npx prisma migrate deploy` puis `node dist/index.js`. Healthcheck Docker : `GET /health`.
+
+Script `deploy.sh` :
+
+```bash
+export DOCKER_USER=<ton-user-dockerhub>
+./deploy.sh   # build + push :version + :latest
+```
+
+### Railway / Vercel
+
+- **Backend (Railway)** : variables identiques au tableau ci-dessus. Vérifie que la dernière commit `main` est bien déployée (Deployments).
+- **Front (Vercel)** : `NEXT_PUBLIC_API_URL` et `API_URL` doivent pointer sur l’URL Railway **sans** slash final.
+
+---
+
+## 9. Tests rapides (curl)
+
+```bash
+API="http://localhost:4000"
+
+curl "$API/health"
+
+# Inscription
+curl -X POST "$API/inscription/" -H "Content-Type: application/json" -d '{
+  "prenom":"Marie","nom":"Dupont","email":"marie@example.cg","motDePasse":"Pass!123",
+  "ville":"Brazzaville","age":24,"sexe":"femme"
+}'
+
 # Login admin
-curl -s -X POST "$API/admin/login" \
-  -H "Content-Type: application/json" \
-  -d '{"email":"…","motDePasse":"…"}'
+TOKEN=$(curl -s -X POST "$API/admin/login" -H "Content-Type: application/json" \
+  -d '{"email":"admin@…","motDePasse":"…"}' | jq -r .access_token)
 
-# Export (obstacles / besoinPrincipal)
-curl -s "$API/admin/export" -H "Authorization: Bearer $TOKEN"
-
-# Stats agrégées
-curl -s "$API/admin/stats" -H "Authorization: Bearer $TOKEN"
+curl "$API/admin/stats?ageMin=18&sexe=femme" -H "Authorization: Bearer $TOKEN"
+curl "$API/admin/rapports/2026-06" -H "Authorization: Bearer $TOKEN" -o rapport.csv
 ```
-
-Scripts locaux : `npx ts-node scripts/probe-stats.ts`, `probe-questionnaires.ts`, `probe-storage.ts`, `probe-http.ts` (nécessite `npm run dev` pour le HTTP).
 
 ---
 
-## Dépannage dashboard « obstacles / besoins à 0 »
+## 10. Dépannage
 
-1. **Même base** : local et Railway doivent utiliser le même `DATABASE_URL` pour voir les mêmes données.
-2. **Code déployé** : commit récent (`32fc54b+`) avec export enrichi + stats agrégées.
-3. **Clé Supabase** : `SUPABASE_SERVICE_ROLE_KEY` = service_role du bon projet.
-4. **Bearer admin** : `/admin/stats` et `/admin/export` exigent le token ; sans lui → `401` et graphiques vides côté front.
-5. **Questionnaires** : vérifier que `POST /me/questionnaire/` a bien été appelé après inscription (champs `besoinPrincipal`, `obstacles` dans `reponses`).
+| Symptôme                                              | Cause probable                                                                  | Action                                                                 |
+|-------------------------------------------------------|---------------------------------------------------------------------------------|------------------------------------------------------------------------|
+| `EADDRINUSE` au démarrage                             | Port 4000 déjà occupé par un autre `node`                                       | Windows : `netstat -ano \| findstr :4000` puis `taskkill /PID <pid> /F` |
+| `404 USER_ROW_NOT_FOUND_FOR_JWT`                      | Compte Auth présent mais pas de ligne `User`                                    | Appeler `POST /me/provision` ou `POST /inscription/`                   |
+| `502 STORAGE_UPLOAD_FAILED` + « row-level security »  | Clé `SUPABASE_SERVICE_ROLE_KEY` manquante / incorrecte (ou clé anon utilisée)   | Remplacer par la **service_role** dans les variables                   |
+| `502 SUPABASE_USER_METADATA_SYNC_FAILED`              | JSON questionnaire trop gros (limites Supabase Auth)                            | Réduire la taille des réponses, ou éclater en sous-objets              |
+| `500 DB_AUTH_FAILED`                                  | Mauvais `DATABASE_URL`/`DIRECT_URL`                                             | Vérifier les credentials Supabase pooler                               |
+| Stats `0` partout sur le dashboard                    | Bearer admin manquant, mauvais projet, questionnaires vides                     | Voir la sonde `npm run probe:stats`                                    |
+
+---
+
+## 11. Contrat front
+
+Le fichier `src/types/front-contract.ts` est la source de vérité des payloads échangés (à dupliquer côté front ou à publier comme package partagé). Les SSE émis ont un type `SseEvent` également exporté.

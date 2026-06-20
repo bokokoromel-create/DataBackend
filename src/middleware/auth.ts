@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from "express";
 import { supabase } from "../lib/supabase";
+import { touchUserActivity } from "../lib/userActivity";
 
 /**
  * Exige `Authorization: Bearer <JWT access token Supabase>`.
@@ -30,5 +31,6 @@ export async function requireAuth(
 
   (req as Request & { supabaseUser: NonNullable<typeof data.user> }).supabaseUser =
     data.user;
+  touchUserActivity(data.user.id);
   next();
 }

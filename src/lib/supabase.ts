@@ -26,26 +26,55 @@ function assertValidSupabaseHttpUrl(url: string, envName: string): void {
   }
 }
 
-const url = readEnv("SUPABASE_URL");
-const serviceRoleKey = readEnv("SUPABASE_SERVICE_ROLE_KEY");
+const urlRaw = readEnv("SUPABASE_URL");
+const serviceRoleKeyRaw = readEnv("SUPABASE_SERVICE_ROLE_KEY");
 
-if (!url) {
+if (!urlRaw) {
   throw new Error(
     "SUPABASE_URL est absent ou vide après trim/normalisation — définis-le dans les variables d’environnement du serveur (fichier .env, Railway → Variables, ou Docker --env-file).",
   );
 }
 
-if (!serviceRoleKey) {
+if (!serviceRoleKeyRaw) {
   throw new Error(
     "SUPABASE_SERVICE_ROLE_KEY est absent ou vide après trim/normalisation — clé secret service role depuis le tableau Supabase (Project Settings → API).",
   );
 }
 
-assertValidSupabaseHttpUrl(url, "SUPABASE_URL");
+assertValidSupabaseHttpUrl(urlRaw, "SUPABASE_URL");
 
+const url: string = urlRaw;
+const serviceRoleKey: string = serviceRoleKeyRaw;
+
+/**
+ * Singleton service-role : utilisé pour Storage, validation JWT (`auth.getUser(token)`)
+ * et opérations admin (`auth.admin.*`). On ne doit JAMAIS appeler `signInWithPassword`
+ * (ni `setSession`) dessus, sinon supabase-js mémorise la session du dernier user et
+ * envoie son JWT en `Authorization` sur les requêtes suivantes — ce qui désactive le
+ * bypass RLS et fait échouer l’upload Storage avec « row-level security policy ».
+ */
 export const supabase = createClient(url, serviceRoleKey, {
   auth: {
     autoRefreshToken: false,
     persistSession: false,
   },
 });
+
+/**
+ * Connecte un utilisateur (participant ou admin) sans toucher au singleton service_role.
+ *
+ * Crée un client jetable juste pour récupérer la `session` (access_token / refresh_token).
+ * À utiliser dans les routes `/login` au lieu de `supabase.auth.signInWithPassword(...)`.
+ */
+export async function signInUserWithPassword(
+  email: string,
+  password: string,
+) {
+  const oneOff = createClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+  return oneOff.auth.signInWithPassword({ email, password });
+}

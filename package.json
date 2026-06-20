@@ -1,16 +1,29 @@
 {
   "name": "backenddatahorizon",
-  "version": "1.0.1",
-  "description": "",
-  "main": "index.js",
+  "version": "1.2.0",
+  "description": "API Data Horizon : Express + Prisma + Supabase Auth/Storage.",
+  "main": "dist/index.js",
   "scripts": {
     "dev": "nodemon --exec ts-node src/index.ts",
+    "start:dev": "ts-node src/index.ts",
     "build": "prisma generate && tsc",
+    "start": "node dist/index.js",
     "postinstall": "prisma generate",
-    "start": "node dist/index.js"
+    "typecheck": "tsc --noEmit",
+    "probe:stats": "ts-node scripts/probe-stats.ts",
+    "probe:storage": "ts-node scripts/probe-storage.ts",
+    "probe:rapports": "ts-node scripts/probe-rapports.ts",
+    "probe:diplome-upload": "ts-node scripts/probe-diplome-upload.ts",
+    "probe:http": "ts-node scripts/probe-http.ts",
+    "probe:questionnaires": "ts-node scripts/probe-questionnaires.ts"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": [
+    "datahorizon",
+    "express",
+    "prisma",
+    "supabase"
+  ],
+  "author": "Data Horizon",
   "license": "ISC",
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

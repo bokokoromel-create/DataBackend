@@ -9,34 +9,36 @@ import {
   besoinPrincipalDepuisReponses,
   obstaclesDepuisReponses,
 } from "../../admin/questionnaireAggre";
+import { aggreParThematique } from "../../admin/thematiquesAggre";
+import {
+  exportFilterFromQuery,
+  matchesNiveauEtudeFilter,
+} from "../../lib/exportDemographics";
+import { niveauEtudeDepuisReponses } from "../../lib/questionnaireFields";
+import { utilisateursActifsMensuels } from "../../lib/userActivity";
 import { adminRegisterInvalidBody } from "../../lib/exampleCurls";
 import { prisma } from "../../lib/prisma";
-import { supabase } from "../../lib/supabase";
+import { signInUserWithPassword, supabase } from "../../lib/supabase";
 import { requireAuth } from "../../middleware/auth";
 import { requireAdmin } from "../../middleware/requireAdmin";
-import type { AdminPatchProfil, DonneesInscriptionAdmin } from "../../types/front-contract";
+import type {
+  AdminPatchProfil,
+  DonneesInscriptionAdmin,
+} from "../../types/front-contract";
 import { broadcast } from "../../events/sse";
 import evenementsRoutes from "./evenements";
 import sondagesRoutes from "./sondages";
 import diplomesRoutes from "./diplomes";
-
-type QuestionnaireExport = { createdAt: Date; reponses: unknown };
-type UtilisateurPourExport = {
-  id: string;
-  prenom: string;
-  nom: string;
-  email: string;
-  ville: string;
-  createdAt: Date;
-  questionnaire: QuestionnaireExport | null;
-};
-type AgregationParVille = { ville: string; _count: { id: number } };
+import opportunitesRoutes from "./opportunites";
+import rapportsRoutes from "./rapports";
 
 const router = Router();
 
 router.use("/evenements", evenementsRoutes);
 router.use("/sondages", sondagesRoutes);
 router.use("/diplomes", diplomesRoutes);
+router.use("/opportunites", opportunitesRoutes);
+router.use("/rapports", rapportsRoutes);
 
 router.post("/register", async (req, res) => {
   if (
@@ -129,10 +131,10 @@ router.post("/login", async (req, res) => {
     });
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: email.trim(),
-    password: motDePasse,
-  });
+  const { data, error } = await signInUserWithPassword(
+    email.trim(),
+    motDePasse,
+  );
 
   if (error || !data.session || !data.user) {
     return res.status(401).json({
@@ -276,8 +278,8 @@ router.patch("/me", requireAuth, requireAdmin, async (req, res) => {
       },
     });
 
-    const { supabaseId: _s, ...publicAdmin } = updated;
-    void _s;
+    const { supabaseId: _supabaseId, ...publicAdmin } = updated;
+    void _supabaseId;
     broadcast(
       {
         type: "admin.profile.updated",
@@ -307,14 +309,25 @@ router.patch("/me", requireAuth, requireAdmin, async (req, res) => {
 });
 
 /** Export agrégé (tous utilisateurs depuis la BDD). Auth admin comme `PATCH /admin/me`. */
-router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
-  const users: UtilisateurPourExport[] = await prisma.user.findMany({
+router.get("/export", requireAuth, requireAdmin, async (req, res) => {
+  const { filter, prismaWhere, error } = exportFilterFromQuery(
+    req.query as Record<string, unknown>,
+  );
+  if (error) {
+    return res.status(422).json({ message: error, error: "INVALID_QUERY" });
+  }
+
+  const users = await prisma.user.findMany({
+    where: prismaWhere,
     select: {
       id: true,
       prenom: true,
       nom: true,
       email: true,
       ville: true,
+      arrondissement: true,
+      age: true,
+      sexe: true,
       createdAt: true,
       questionnaire: {
         select: { createdAt: true, reponses: true },
@@ -328,33 +341,43 @@ router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
     nombreParStatut[s] = 0;
   }
 
-  const participants = users.map((u) => {
-    const reponses = u.questionnaire?.reponses ?? null;
-    const statut = u.questionnaire
-      ? statutDepuisReponses(reponses)
-      : "Non renseigné";
+  const participants = users
+    .map((u) => {
+      const reponses = u.questionnaire?.reponses ?? null;
+      const statut = u.questionnaire
+        ? statutDepuisReponses(reponses)
+        : "Non renseigné";
 
-    nombreParStatut[statut] = (nombreParStatut[statut] ?? 0) + 1;
+      const besoinPrincipal = besoinPrincipalDepuisReponses(reponses);
+      const obstaclesArr = obstaclesDepuisReponses(reponses);
+      const niveauEtude = niveauEtudeDepuisReponses(reponses);
+      const inscriptionAt = u.createdAt.toISOString();
 
-    const besoinPrincipal = besoinPrincipalDepuisReponses(reponses);
-    const obstaclesArr = obstaclesDepuisReponses(reponses);
+      return {
+        idParticipant: u.id,
+        prenom: u.prenom,
+        nom: u.nom,
+        email: u.email,
+        ville: u.ville,
+        arrondissement: u.arrondissement,
+        age: u.age,
+        sexe: u.sexe,
+        niveauEtude,
+        statut,
+        besoinPrincipal,
+        obstacles: obstaclesArr,
+        obstaclesText: obstaclesArr.join(" ; "),
+        inscriptionAt,
+        enregistreLe: inscriptionAt,
+        questionnaireSoumisAt: u.questionnaire?.createdAt.toISOString() ?? null,
+        questionnaireComplet: Boolean(reponses && besoinPrincipal),
+      };
+    })
+    .filter((p) => matchesNiveauEtudeFilter(p.niveauEtude, filter.niveauEtude));
 
-    return {
-      idParticipant: u.id,
-      prenom: u.prenom,
-      nom: u.nom,
-      email: u.email,
-      ville: u.ville,
-      statut,
-      besoinPrincipal,
-      obstacles: obstaclesArr,
-      obstaclesText: obstaclesArr.join(" ; "),
-      inscriptionAt: u.createdAt.toISOString(),
-      enregistreLe: u.createdAt.toISOString(),
-      questionnaireSoumisAt: u.questionnaire?.createdAt.toISOString() ?? null,
-      questionnaireComplet: Boolean(reponses && besoinPrincipal),
-    };
-  });
+  for (const p of participants) {
+    nombreParStatut[p.statut] = (nombreParStatut[p.statut] ?? 0) + 1;
+  }
 
   const parStatut = statutsOrdonnesAggre().map((statut) => ({
     statut,
@@ -371,38 +394,71 @@ router.get("/export", requireAuth, requireAdmin, async (_req, res) => {
   });
 });
 
-router.get("/stats", requireAuth, requireAdmin, async (_req, res) => {
-  const [totalUsers, totalDiplomes, parVille, questionnaires] =
-    await Promise.all([
-      prisma.user.count(),
-      prisma.diplome.count(),
-      prisma.user.groupBy({ by: ["ville"], _count: { id: true } }),
-      prisma.questionnaire.findMany({
-        select: {
-          reponses: true,
-          user: { select: { ville: true } },
-        },
-      }),
-    ]);
+router.get("/stats", requireAuth, requireAdmin, async (req, res) => {
+  const { filter, prismaWhere, error } = exportFilterFromQuery(
+    req.query as Record<string, unknown>,
+  );
+  if (error) {
+    return res.status(422).json({ message: error, error: "INVALID_QUERY" });
+  }
 
-  const detail = aggreStatsQuestionnaires(
-    questionnaires.map((q) => ({
-      ville: q.user.ville,
-      reponses: q.reponses,
-    })),
+  const users = await prisma.user.findMany({
+    where: prismaWhere,
+    select: {
+      id: true,
+      ville: true,
+      diplome: { select: { id: true } },
+      questionnaire: { select: { reponses: true } },
+    },
+  });
+
+  const filtered = users.filter((u) =>
+    matchesNiveauEtudeFilter(
+      niveauEtudeDepuisReponses(u.questionnaire?.reponses ?? null),
+      filter.niveauEtude,
+    ),
+  );
+
+  const questionnaires = filtered
+    .filter((u) => u.questionnaire)
+    .map((u) => ({
+      ville: u.ville,
+      reponses: u.questionnaire!.reponses,
+    }));
+
+  const detail = aggreStatsQuestionnaires(questionnaires);
+  const parThematique = aggreParThematique(
+    filtered
+      .filter((u) => u.questionnaire)
+      .map((u) => ({ reponses: u.questionnaire!.reponses })),
+  );
+
+  const parVilleMap = new Map<string, number>();
+  for (const u of filtered) {
+    const ville = u.ville.trim() || "Non renseigné";
+    parVilleMap.set(ville, (parVilleMap.get(ville) ?? 0) + 1);
+  }
+
+  const parVille = [...parVilleMap.entries()]
+    .map(([ville, count]) => ({ ville, count }))
+    .sort((a, b) => a.ville.localeCompare(b.ville, "fr"));
+
+  const mau = await utilisateursActifsMensuels(
+    Object.keys(filter).length > 0 || filtered.length !== users.length
+      ? filtered.map((u) => u.id)
+      : undefined,
   );
 
   return res.json({
-    totalUsers,
+    totalUsers: filtered.length,
     totalQuestionnaires: detail.totalQuestionnairesActifs,
-    totalDiplomes,
-    parVille: parVille.map((v: AgregationParVille) => ({
-      ville: v.ville,
-      count: v._count.id,
-    })),
+    totalDiplomes: filtered.filter((u) => u.diplome).length,
+    parVille,
     totalObstaclesSelectionnes: detail.totalObstaclesSelectionnes,
     besoinsParType: detail.besoinsParType,
     prioritesParZone: detail.prioritesParZone,
+    utilisateursActifsMensuels: mau,
+    parThematique,
   });
 });
 

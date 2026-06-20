@@ -1,8 +1,11 @@
 import "./loadEnv";
-import express from "express";
+import express, {
+  type ErrorRequestHandler,
+  type Request,
+  type Response,
+} from "express";
 import cors from "cors";
 import { readEnv } from "./lib/envRead";
-import authRoutes from "./routes/auth";
 import inscriptionRoutes from "./routes/inscription";
 import profilRoutes from "./routes/profil";
 import questionnaireRoutes from "./routes/questionnaire";
@@ -10,9 +13,14 @@ import adminRoutes from "./routes/admin/index";
 import meEvenementsRoutes from "./routes/me/evenements";
 import meSondagesRoutes from "./routes/me/sondages";
 import meDiplomeRoutes from "./routes/me/diplome";
+import mePublicationsRoutes from "./routes/me/publications";
+import meGamificationRoutes from "./routes/me/gamification";
+import meOpportunitesRoutes from "./routes/me/opportunites";
 import { attachSseClient } from "./events/sse";
 import { supabase } from "./lib/supabase";
 import { prisma } from "./lib/prisma";
+
+const API_VERSION = "1.2.0";
 
 const app = express();
 
@@ -23,8 +31,6 @@ const corsOrigin =
 
 app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({ limit: readEnv("JSON_BODY_LIMIT") || "1mb" }));
-
-const API_VERSION = "1.0.1";
 
 app.get("/", (_req, res) => {
   res.json({
@@ -38,32 +44,42 @@ app.get("/health", (_req, res) => {
   res.json({ status: "ok", version: API_VERSION });
 });
 
-app.use("/auth", authRoutes);
 app.use("/inscription", inscriptionRoutes);
 app.use("/me", profilRoutes);
 app.use("/me/questionnaire", questionnaireRoutes);
 app.use("/me/evenements", meEvenementsRoutes);
 app.use("/me/sondages", meSondagesRoutes);
 app.use("/me/diplome", meDiplomeRoutes);
+app.use("/me/publications", mePublicationsRoutes);
+app.use("/me/gamification", meGamificationRoutes);
+app.use("/me/opportunites", meOpportunitesRoutes);
 app.use("/admin", adminRoutes);
 
-// JSON parse errors should return JSON (not HTML) for the frontend
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-app.use((err: any, _req: express.Request, res: express.Response, next: express.NextFunction) => {
-  if (err && err.type === "entity.parse.failed") {
+const jsonParseErrorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  if (
+    err &&
+    typeof err === "object" &&
+    (err as { type?: string }).type === "entity.parse.failed"
+  ) {
     return res.status(400).json({
       message: "JSON invalide. Vérifie le Content-Type et le corps de requête.",
       error: "INVALID_JSON",
     });
   }
   return next(err);
-});
+};
+app.use(jsonParseErrorHandler);
 
-// SSE (front listens on GET /events)
-// Auth strategy:
-// - Dev: allow unauthenticated (scope=public)
-// - Prod: require admin Bearer token (scope=admin) for dashboard live updates
-app.get("/events", async (req, res) => {
+/**
+ * SSE temps réel (`GET /events`).
+ *
+ * - Dev (`NODE_ENV !== "production"`) sans `scope=admin` → flux public ouvert.
+ * - Sinon → flux admin protégé : le navigateur ne peut pas fixer d'en-tête
+ *   `Authorization` sur `EventSource`, on accepte donc le JWT en query
+ *   (`?scope=admin&token=...` ou `?access_token=...`), avec fallback Bearer
+ *   pour les clients qui le supportent.
+ */
+async function handleSseRequest(req: Request, res: Response): Promise<void> {
   const isProd = process.env.NODE_ENV === "production";
   const wantsAdmin = String(req.query.scope || "").toLowerCase() === "admin";
 
@@ -72,16 +88,17 @@ app.get("/events", async (req, res) => {
     return;
   }
 
-  // EventSource cannot send custom headers reliably from the browser,
-  // so we accept a token in query string for now: /events?token=...&scope=admin
-  // Le proxy Next relaie aussi `access_token` ou `Authorization: Bearer`.
   const authHeader = req.headers.authorization ?? "";
-  const bearer =
-    authHeader.startsWith("Bearer ") ? authHeader.slice(7).trim() : "";
+  const bearer = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : "";
   const token =
     (typeof req.query.token === "string" ? req.query.token : "") ||
-    (typeof req.query.access_token === "string" ? req.query.access_token : "") ||
+    (typeof req.query.access_token === "string"
+      ? req.query.access_token
+      : "") ||
     bearer;
+
   if (!token) {
     res.status(401).json({
       message:
@@ -95,8 +112,7 @@ app.get("/events", async (req, res) => {
   if (error || !data.user) {
     res.status(401).json({
       message:
-        error?.message ??
-        "Jeton invalide ou expiré. Reconnecte-toi côté front.",
+        error?.message ?? "Jeton invalide ou expiré. Reconnecte-toi côté front.",
       error: "INVALID_OR_EXPIRED_TOKEN",
     });
     return;
@@ -104,6 +120,7 @@ app.get("/events", async (req, res) => {
 
   const adminRow = await prisma.adminUser.findUnique({
     where: { supabaseId: data.user.id },
+    select: { id: true },
   });
   if (!adminRow) {
     res.status(403).json({
@@ -114,7 +131,33 @@ app.get("/events", async (req, res) => {
   }
 
   attachSseClient(req, res, "admin");
+}
+
+app.get("/events", handleSseRequest);
+
+const PORT = Number(readEnv("PORT") || 4000);
+
+const server = app.listen(PORT);
+
+server.on("listening", () => {
+  const addr = server.address();
+  const label =
+    addr && typeof addr === "object"
+      ? `${addr.address}:${addr.port}`
+      : String(PORT);
+  console.log(`Backend démarré sur le port ${PORT} (${label})`);
 });
 
-const PORT = readEnv("PORT") || 4000;
-app.listen(PORT, () => console.log(`Backend démarré sur le port ${PORT}`));
+server.on("error", (err: NodeJS.ErrnoException) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(
+      `Impossible de démarrer : le port ${PORT} est déjà utilisé par un autre processus.`,
+    );
+    console.error(
+      `Windows : netstat -ano | findstr :${PORT}  puis  taskkill /PID <pid> /F`,
+    );
+  } else {
+    console.error("Erreur au démarrage du serveur :", err.message);
+  }
+  process.exit(1);
+});

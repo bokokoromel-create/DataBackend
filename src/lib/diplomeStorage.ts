@@ -81,10 +81,9 @@ export async function uploadDiplomeFile(
     });
 
   if (error) {
-    const hint =
-      /row-level security/i.test(error.message)
-        ? " Applique prisma/supabase/diplomes-rls.sql dans Supabase (SQL Editor) ou vérifie SUPABASE_SERVICE_ROLE_KEY sur le serveur."
-        : "";
+    const hint = /row-level security/i.test(error.message)
+      ? " Vérifie que SUPABASE_SERVICE_ROLE_KEY (et non la clé anon) est utilisée sur le serveur."
+      : "";
     return { error: error.message + hint };
   }
   return { error: null };
