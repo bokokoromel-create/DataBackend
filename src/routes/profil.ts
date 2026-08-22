@@ -103,9 +103,10 @@ router.post("/provision", requireAuth, async (req, res) => {
 
   const parsed = parseProfilProvision(req.body);
   if (!parsed.ok) {
-    return res.status(422).json({
+    const status = parsed.error === "VALIDATION_SEXE" ? 400 : 422;
+    return res.status(status).json({
       message: parsed.message,
-      error: parsed.error,
+      ...(status === 422 ? { error: parsed.error } : {}),
     });
   }
 
@@ -137,7 +138,7 @@ router.patch("/", requireAuth, async (req, res) => {
 
   const parsed = parseProfilPatch(req.body);
   if (!parsed.ok) {
-    return res.status(422).json({
+    return res.status(parsed.status ?? 422).json({
       message: parsed.message,
       error: parsed.error,
     });

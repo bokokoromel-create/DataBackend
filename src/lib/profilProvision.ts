@@ -1,5 +1,8 @@
 import type { Prisma } from "@prisma/client";
-import { parseInscriptionDemographics } from "./inscriptionDemographics";
+import {
+  parseInscriptionDemographics,
+  SEXE_INVALID_MESSAGE,
+} from "./inscriptionDemographics";
 
 const PROVISION_REQUIRED = ["prenom", "nom", "ville"] as const;
 
@@ -46,11 +49,22 @@ export function parseProfilProvision(body: unknown):
 
   const demo = parseInscriptionDemographics({ age: obj.age, sexe: obj.sexe });
   if (!demo.ok) {
-    return { ok: false, message: demo.message, error: "VALIDATION_DEMOGRAPHICS" };
+    return {
+      ok: false,
+      message: demo.message,
+      error:
+        demo.message === SEXE_INVALID_MESSAGE
+          ? "VALIDATION_SEXE"
+          : "VALIDATION_DEMOGRAPHICS",
+    };
   }
 
   let arrondissement: string | null = null;
-  if (obj.arrondissement !== undefined && obj.arrondissement !== null && obj.arrondissement !== "") {
+  if (
+    obj.arrondissement !== undefined &&
+    obj.arrondissement !== null &&
+    obj.arrondissement !== ""
+  ) {
     if (typeof obj.arrondissement !== "string" || !obj.arrondissement.trim()) {
       return {
         ok: false,
@@ -62,7 +76,11 @@ export function parseProfilProvision(body: unknown):
   }
 
   let telephone: string | null = null;
-  if (obj.telephone !== undefined && obj.telephone !== null && obj.telephone !== "") {
+  if (
+    obj.telephone !== undefined &&
+    obj.telephone !== null &&
+    obj.telephone !== ""
+  ) {
     if (typeof obj.telephone !== "string" || !obj.telephone.trim()) {
       return {
         ok: false,

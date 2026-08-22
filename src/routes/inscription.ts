@@ -1,12 +1,9 @@
-/**
- * Inscription participant.
- *
- * Crée le compte Supabase Auth (ou réutilise un compte existant avec le même mot de passe),
- * puis la ligne métier `User` (Prisma) liée par `supabaseId`.
- */
 import { Router } from "express";
 import { inscriptionInvalidBody } from "../lib/exampleCurls";
-import { parseInscriptionDemographics } from "../lib/inscriptionDemographics";
+import {
+  parseInscriptionDemographics,
+  SEXE_INVALID_MESSAGE,
+} from "../lib/inscriptionDemographics";
 import {
   createParticipantUser,
   isAuthEmailAlreadyRegistered,
@@ -64,10 +61,12 @@ router.post("/", async (req, res) => {
 
   const demo = parseInscriptionDemographics({ age: ageRaw, sexe: sexeRaw });
   if (!demo.ok) {
-    return res.status(422).json({
-      message: demo.message,
-      error: "VALIDATION_DEMOGRAPHICS",
-    });
+    return res.status(400).json({ message: demo.message });
+  }
+
+  // Nouvelles inscriptions : sexe obligatoire (homme | femme).
+  if (demo.sexe == null) {
+    return res.status(400).json({ message: SEXE_INVALID_MESSAGE });
   }
 
   const existingProfile = await prisma.user.findUnique({
@@ -134,7 +133,7 @@ router.post("/", async (req, res) => {
       ville: user.ville,
       statut: "Non renseigné",
       age: user.age,
-      sexe: user.sexe,
+      sexe: demo.sexe,
       arrondissement: user.arrondissement,
       niveauEtude: "",
       inscriptionAt: user.createdAt.toISOString(),
@@ -153,8 +152,7 @@ router.post("/", async (req, res) => {
     }
     console.error(err);
     return res.status(500).json({
-      message:
-        "Impossible d'enregistrer le profil en base.",
+      message: "Impossible d'enregistrer le profil en base.",
       error: "PRISMA_USER_CREATE_FAILED",
     });
   }

@@ -1,5 +1,8 @@
 import type { Prisma } from "@prisma/client";
-import { parseInscriptionDemographics } from "./inscriptionDemographics";
+import {
+  parseInscriptionDemographics,
+  SEXE_INVALID_MESSAGE,
+} from "./inscriptionDemographics";
 
 const PATCH_FIELDS = [
   "prenom",
@@ -13,7 +16,7 @@ const PATCH_FIELDS = [
 
 export function parseProfilPatch(body: unknown):
   | { ok: true; data: Prisma.UserUpdateInput }
-  | { ok: false; message: string; error: string } {
+  | { ok: false; message: string; error: string; status?: number } {
   if (body == null || typeof body !== "object" || Array.isArray(body)) {
     return {
       ok: false,
@@ -46,21 +49,33 @@ export function parseProfilPatch(body: unknown):
 
   if ("prenom" in obj) {
     if (typeof obj.prenom !== "string" || !obj.prenom.trim()) {
-      return { ok: false, message: "prenom invalide (string non vide).", error: "VALIDATION" };
+      return {
+        ok: false,
+        message: "prenom invalide (string non vide).",
+        error: "VALIDATION",
+      };
     }
     data.prenom = obj.prenom.trim();
   }
 
   if ("nom" in obj) {
     if (typeof obj.nom !== "string" || !obj.nom.trim()) {
-      return { ok: false, message: "nom invalide (string non vide).", error: "VALIDATION" };
+      return {
+        ok: false,
+        message: "nom invalide (string non vide).",
+        error: "VALIDATION",
+      };
     }
     data.nom = obj.nom.trim();
   }
 
   if ("ville" in obj) {
     if (typeof obj.ville !== "string" || !obj.ville.trim()) {
-      return { ok: false, message: "ville invalide (string non vide).", error: "VALIDATION" };
+      return {
+        ok: false,
+        message: "ville invalide (string non vide).",
+        error: "VALIDATION",
+      };
     }
     data.ville = obj.ville.trim();
   }
@@ -68,7 +83,10 @@ export function parseProfilPatch(body: unknown):
   if ("arrondissement" in obj) {
     if (obj.arrondissement === null || obj.arrondissement === "") {
       data.arrondissement = null;
-    } else if (typeof obj.arrondissement === "string" && obj.arrondissement.trim()) {
+    } else if (
+      typeof obj.arrondissement === "string" &&
+      obj.arrondissement.trim()
+    ) {
       data.arrondissement = obj.arrondissement.trim();
     } else {
       return {
@@ -111,7 +129,12 @@ export function parseProfilPatch(body: unknown):
     } else {
       const demo = parseInscriptionDemographics({ sexe: obj.sexe });
       if (!demo.ok) {
-        return { ok: false, message: demo.message, error: "VALIDATION" };
+        return {
+          ok: false,
+          message: demo.message,
+          error: "VALIDATION",
+          status: demo.message === SEXE_INVALID_MESSAGE ? 400 : 422,
+        };
       }
       data.sexe = demo.sexe;
     }

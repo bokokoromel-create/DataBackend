@@ -16,7 +16,8 @@ export interface DonneesInscriptionProfil {
   arrondissement?: string | null;
   telephone?: string | null;
   age?: number | null;
-  sexe?: string | null;
+  /** Obligatoire à l’inscription : `femme` | `homme` (MAJ-2026-08-22). */
+  sexe?: "femme" | "homme" | null;
 }
 
 /**
@@ -35,7 +36,8 @@ export interface ProfilPatchBody {
   arrondissement?: string | null;
   telephone?: string | null;
   age?: number | null;
-  sexe?: string | null;
+  /** `femme` | `homme` uniquement (MAJ-2026-08-22). */
+  sexe?: "femme" | "homme" | null;
 }
 
 /** Réponse `GET /me/` — source de vérité profil + questionnaire sidebar. */
@@ -48,7 +50,8 @@ export interface ProfilMeResponse {
   arrondissement: string | null;
   telephone: string | null;
   age: number | null;
-  sexe: string | null;
+  /** `femme` | `homme`, ou `null` pour les anciens comptes. */
+  sexe: "femme" | "homme" | null;
   createdAt: string;
   /** E-mail confirmé côté Supabase Auth. */
   compteAuthentifie: boolean;
@@ -114,7 +117,8 @@ export interface ParticipantResume {
   ville: string;
   statut: string;
   age: number | null;
-  sexe: string | null;
+  /** `femme` | `homme`, ou `null` pour les anciens comptes. */
+  sexe: "femme" | "homme" | null;
   arrondissement: string | null;
   niveauEtude: string;
   inscriptionAt: string;

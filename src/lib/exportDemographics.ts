@@ -52,8 +52,10 @@ export function exportFilterFromQuery(query: Record<string, unknown>): {
 
   const sexe = stringParam(query.sexe);
   if (sexe) {
-    filter.sexe = sexe;
-    prismaWhere.sexe = { equals: sexe, mode: "insensitive" };
+    // Canonique : homme | femme (insensible à la casse côté query).
+    const sexeNorm = sexe.toLowerCase();
+    filter.sexe = sexeNorm;
+    prismaWhere.sexe = { equals: sexeNorm, mode: "insensitive" };
   }
 
   const arrondissement = stringParam(query.arrondissement);
