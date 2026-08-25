@@ -78,10 +78,18 @@ function classeDepuisLibelleOuAlias(raw: string): StatutProfessionnelAggrege {
 export function statutDepuisReponses(
   reponses: unknown | null | undefined,
 ): StatutProfessionnelAggrege {
-  if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
+  let data = reponses;
+  if (typeof data === "string") {
+    try {
+      data = JSON.parse(data) as unknown;
+    } catch {
+      return "Non renseigné";
+    }
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
     return "Non renseigné";
   }
-  const obj = reponses as Record<string, unknown>;
+  const obj = data as Record<string, unknown>;
 
   for (const cle of CLES_TRIEES_PAR_PRIORITE) {
     const v = obj[cle];
@@ -91,7 +99,7 @@ export function statutDepuisReponses(
     }
   }
 
-  for (const s of collectStringCandidates(reponses)) {
+  for (const s of collectStringCandidates(data)) {
     const c = classeDepuisLibelleOuAlias(s);
     if (c !== "Non renseigné") return c;
   }

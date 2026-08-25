@@ -2,16 +2,14 @@
  * Questionnaire participant.
  *
  * - Persiste les réponses dans PostgreSQL (`Questionnaire`, via Prisma).
- * - Réplique sur le compte **Supabase Auth** du participant : `user_metadata` (dashboard Auth,
- *   client `getSession`, etc.). En cas d’échec de cette synchro, la transaction Prisma est
- *   annulée (retour à l’état précédent) pour éviter un décalage.
- *
- * Attention : `user_metadata` est limité en taille (~quelques Ko côté JWT) ; un JSON très gros
- * peut faire échouer la synchro → `SUPABASE_USER_METADATA_SYNC_FAILED` après rollback Prisma.
+ * - Réplique sur le compte **Supabase Auth** du participant : `user_metadata`.
+ * - Si aucun profil métier n’existe encore pour le JWT : le crée automatiquement
+ *   (MAJ-2026-08-23) pour ne plus renvoyer 404 et perdre les réponses.
  */
 import { Router, type Request } from "express";
 import { Prisma } from "@prisma/client";
 import { questionnaireInvalidBody } from "../lib/exampleCurls";
+import { ensureParticipantUser } from "../lib/participantProvision";
 import { supabase } from "../lib/supabase";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
@@ -20,6 +18,12 @@ import { syncMembresInvitesFromQuestionnaire } from "../lib/gamification";
 import { broadcast } from "../events/sse";
 
 const router = Router();
+
+type AuthUser = {
+  id: string;
+  email?: string | null;
+  user_metadata?: Record<string, unknown> | null;
+};
 
 async function rollbackQuestionnaire(
   userId: string,
@@ -46,7 +50,7 @@ router.post("/", requireAuth, async (req, res) => {
     return res.status(400).json(questionnaireInvalidBody());
   }
 
-  const supabaseUser = (req as Request & { supabaseUser?: { id: string } })
+  const supabaseUser = (req as Request & { supabaseUser?: AuthUser })
     .supabaseUser;
   if (!supabaseUser) {
     return res
@@ -54,14 +58,21 @@ router.post("/", requireAuth, async (req, res) => {
       .json({ message: "Session invalide.", error: "MISSING_SESSION" });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { supabaseId: supabaseUser.id },
-  });
+  let user;
+  try {
+    user = await ensureParticipantUser(supabaseUser);
+  } catch (err) {
+    console.error("[questionnaire] ensureParticipantUser:", err);
+    return res.status(500).json({
+      message: "Impossible de créer le profil participant pour ce compte.",
+      error: "PRISMA_USER_CREATE_FAILED",
+    });
+  }
+
   if (!user) {
-    return res.status(404).json({
+    return res.status(400).json({
       message:
-        "Aucun profil métier pour ce compte : inscris-toi via POST /inscription/ avec le même e-mail.",
-      error: "USER_ROW_NOT_FOUND_FOR_JWT",
+        "Compte Auth sans e-mail : impossible de créer le profil. Reconnecte-toi ou complète l’inscription.",
     });
   }
 
@@ -131,11 +142,11 @@ router.post("/", requireAuth, async (req, res) => {
   broadcast(
     {
       type: "participant.questionnaire.updated",
-      data: { reason: "questionnaire upserted" },
+      data: { reason: "questionnaire upserted", idParticipant: user.id },
     },
     { scope: "admin" },
   );
-  return res.status(201).json(questionnaire);
+  return res.status(before ? 200 : 201).json(questionnaire);
 });
 
 export default router;

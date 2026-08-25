@@ -1,8 +1,13 @@
 import { Router } from "express";
+import type { Prisma } from "@prisma/client";
 import {
   createParticipantUser,
   findParticipantForAuth,
 } from "../lib/participantUser";
+import {
+  ensureParticipantUser,
+  type ParticipantSeed,
+} from "../lib/participantProvision";
 import { parseProfilPatch } from "../lib/profilPatch";
 import { parseProfilProvision } from "../lib/profilProvision";
 import { questionnaireEstComplet } from "../lib/questionnaireFields";
@@ -15,7 +20,23 @@ type SupabaseUser = {
   id: string;
   email?: string;
   email_confirmed_at?: string | null;
+  user_metadata?: Record<string, unknown> | null;
 };
+
+/** Le corps du PATCH sert aussi de valeurs initiales si le profil doit être créé. */
+function seedDepuisPatch(data: Prisma.UserUpdateInput): ParticipantSeed {
+  const texte = (v: unknown) =>
+    typeof v === "string" && v.trim() ? v.trim() : undefined;
+  return {
+    prenom: texte(data.prenom),
+    nom: texte(data.nom),
+    ville: texte(data.ville),
+    arrondissement: texte(data.arrondissement) ?? null,
+    telephone: texte(data.telephone) ?? null,
+    age: typeof data.age === "number" ? data.age : null,
+    sexe: texte(data.sexe) ?? null,
+  };
+}
 
 async function loadUser(supabaseId: string) {
   return prisma.user.findUnique({
@@ -144,12 +165,24 @@ router.patch("/", requireAuth, async (req, res) => {
     });
   }
 
-  const existing = await findParticipantForAuth(supabaseUser);
+  /* Profil absent : on le crée à partir du PATCH plutôt que de renvoyer 404
+     et de perdre la saisie du participant (MAJ-2026-08-23). */
+  let existing;
+  try {
+    existing = await ensureParticipantUser(supabaseUser, seedDepuisPatch(parsed.data));
+  } catch (err) {
+    console.error("[profil] ensureParticipantUser:", err);
+    return res.status(500).json({
+      message: "Impossible de créer le profil participant pour ce compte.",
+      error: "PRISMA_USER_CREATE_FAILED",
+    });
+  }
+
   if (!existing) {
-    return res.status(404).json({
+    return res.status(400).json({
       message:
-        "Aucun profil métier pour ce JWT : complète l’inscription via POST /inscription/ ou POST /me/provision.",
-      error: "USER_ROW_NOT_FOUND_FOR_JWT",
+        "Compte Auth sans e-mail : impossible de créer le profil. Reconnecte-toi ou complète l’inscription.",
+      error: "AUTH_EMAIL_MISSING",
     });
   }
 

@@ -78,7 +78,28 @@ export type StatsQuestionnairesDetail = {
 
 function extractStringLabels(value: unknown): string[] {
   if (typeof value === "string" && value.trim()) {
-    return [value.trim()];
+    const trimmed = value.trim();
+    // Chaîne JSON encodée : '["Manque de formation"]' ou '"Manque de formation"'
+    if (
+      (trimmed.startsWith("[") && trimmed.endsWith("]")) ||
+      (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+      (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    ) {
+      try {
+        const parsed: unknown = JSON.parse(trimmed);
+        return extractStringLabels(parsed);
+      } catch {
+        /* libellé brut */
+      }
+    }
+    // "A ; B" (format export texte parfois renvoyé par le front)
+    if (trimmed.includes(" ; ")) {
+      return trimmed
+        .split(" ; ")
+        .map((s) => s.trim())
+        .filter(Boolean);
+    }
+    return [trimmed];
   }
   if (Array.isArray(value)) {
     return value.flatMap(extractStringLabels);
@@ -114,10 +135,8 @@ function collectFromKeys(
 
 /** Tous les besoins évoqués dans le questionnaire (tableau de libellés canoniques quand possible). */
 export function besoinsDepuisReponses(reponses: unknown): string[] {
-  if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
-    return [];
-  }
-  const obj = reponses as Record<string, unknown>;
+  const obj = normalizeReponses(reponses);
+  if (!obj) return [];
   const all = [
     ...collectFromKeys(obj, BESOIN_ARRAY_KEYS),
     ...collectFromKeys(obj, BESOIN_SINGLE_KEYS),
@@ -127,10 +146,8 @@ export function besoinsDepuisReponses(reponses: unknown): string[] {
 
 /** Besoin principal déclaré (canonique). Vide si non renseigné. */
 export function besoinPrincipalDepuisReponses(reponses: unknown): string {
-  if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
-    return "";
-  }
-  const obj = reponses as Record<string, unknown>;
+  const obj = normalizeReponses(reponses);
+  if (!obj) return "";
   const singles = collectFromKeys(obj, BESOIN_SINGLE_KEYS);
   if (singles.length > 0) {
     const canon = canonBesoinLabel(singles[0]);
@@ -147,10 +164,45 @@ export function besoinPrincipalDepuisReponses(reponses: unknown): string {
 
 /** Liste textuelle des obstacles cochés (libellés bruts trimés). */
 export function obstaclesDepuisReponses(reponses: unknown): string[] {
-  if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
-    return [];
+  const normalized = normalizeReponses(reponses);
+  if (!normalized) return [];
+  return collectFromKeys(normalized, OBSTACLE_KEYS);
+}
+
+/** Normalise `reponses` si la colonne JSON a été stockée en string. */
+export function normalizeReponses(
+  reponses: unknown,
+): Record<string, unknown> | null {
+  if (!reponses) return null;
+  if (typeof reponses === "string") {
+    try {
+      const parsed: unknown = JSON.parse(reponses);
+      return normalizeReponses(parsed);
+    } catch {
+      return null;
+    }
   }
-  return collectFromKeys(reponses as Record<string, unknown>, OBSTACLE_KEYS);
+  if (typeof reponses !== "object" || Array.isArray(reponses)) return null;
+  return reponses as Record<string, unknown>;
+}
+
+/** Questionnaire comptabilisable : statut renseigné OU besoinPrincipal. */
+export function questionnaireEstActif(reponses: unknown): boolean {
+  const normalized = normalizeReponses(reponses);
+  if (!normalized) return false;
+  if (besoinPrincipalDepuisReponses(normalized)) return true;
+  // Import circulaire évité : test local des clés statut
+  for (const cle of [
+    "statutProfessionnel",
+    "situationProfessionnelle",
+    "parcoursProfessionnel",
+    "situation",
+    "statut",
+  ]) {
+    const v = normalized[cle];
+    if (typeof v === "string" && v.trim()) return true;
+  }
+  return false;
 }
 
 function incrementMap(map: Map<string, number>, labels: string[]) {
@@ -200,25 +252,32 @@ export function aggreStatsQuestionnaires(
 
   const parVille = new Map<
     string,
-    { besoins: Map<string, number>; obstacles: number }
+    { besoinsPrincipaux: Map<string, number>; obstacles: number }
   >();
 
   for (const { ville, reponses } of rows) {
-    const besoins = besoinsDepuisReponses(reponses);
-    const obstacles = obstaclesDepuisReponses(reponses);
     const besoinPrincipal = besoinPrincipalDepuisReponses(reponses);
+    const obstacles = obstaclesDepuisReponses(reponses);
 
-    if (besoinPrincipal) totalQuestionnairesActifs += 1;
+    // MAJ-2026-08-23 : compter si statut OU besoinPrincipal
+    if (questionnaireEstActif(reponses)) totalQuestionnairesActifs += 1;
     totalObstaclesSelectionnes += obstacles.length;
 
-    incrementMap(besoinsGlobal, besoins);
+    // besoinsParType : priorité au besoinPrincipal (1 vote / questionnaire)
+    if (besoinPrincipal) {
+      incrementMap(besoinsGlobal, [besoinPrincipal]);
+    } else {
+      incrementMap(besoinsGlobal, besoinsDepuisReponses(reponses));
+    }
 
     const villeNorm = ville.trim() || "Non renseigné";
     if (!parVille.has(villeNorm)) {
-      parVille.set(villeNorm, { besoins: new Map(), obstacles: 0 });
+      parVille.set(villeNorm, { besoinsPrincipaux: new Map(), obstacles: 0 });
     }
     const bucket = parVille.get(villeNorm)!;
-    incrementMap(bucket.besoins, besoins);
+    if (besoinPrincipal) {
+      incrementMap(bucket.besoinsPrincipaux, [besoinPrincipal]);
+    }
     bucket.obstacles += obstacles.length;
   }
 
@@ -227,7 +286,7 @@ export function aggreStatsQuestionnaires(
   const prioritesParZone = [...parVille.entries()]
     .map(([ville, data]) => ({
       ville,
-      besoinPrincipal: modeLabel(data.besoins),
+      besoinPrincipal: modeLabel(data.besoinsPrincipaux),
       obstacles: data.obstacles,
     }))
     .sort((a, b) => a.ville.localeCompare(b.ville, "fr"));

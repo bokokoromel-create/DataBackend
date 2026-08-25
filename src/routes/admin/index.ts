@@ -370,7 +370,26 @@ router.get("/export", requireAuth, requireAdmin, async (req, res) => {
         inscriptionAt,
         enregistreLe: inscriptionAt,
         questionnaireSoumisAt: u.questionnaire?.createdAt.toISOString() ?? null,
-        questionnaireComplet: Boolean(reponses && besoinPrincipal),
+        questionnaireComplet: Boolean(
+          reponses && (besoinPrincipal || (statut && statut !== "Non renseigné")),
+        ),
+        // Forme imbriquée acceptée par certains fronts (MAJ-2026-08-23)
+        questionnaire: u.questionnaire
+          ? {
+              reponses: {
+                statut,
+                niveauEtude,
+                besoinPrincipal,
+                obstacles: obstaclesArr,
+                ...(typeof reponses === "object" &&
+                reponses &&
+                !Array.isArray(reponses)
+                  ? (reponses as Record<string, unknown>)
+                  : {}),
+              },
+              soumisAt: u.questionnaire.createdAt.toISOString(),
+            }
+          : null,
       };
     })
     .filter((p) => matchesNiveauEtudeFilter(p.niveauEtude, filter.niveauEtude));

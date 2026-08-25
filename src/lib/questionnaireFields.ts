@@ -1,4 +1,7 @@
-import { besoinPrincipalDepuisReponses } from "../admin/questionnaireAggre";
+import {
+  besoinPrincipalDepuisReponses,
+  normalizeReponses,
+} from "../admin/questionnaireAggre";
 
 const NIVEAU_ETUDE_KEYS = [
   "niveauEtude",
@@ -16,10 +19,8 @@ function stringFromValue(value: unknown): string {
 
 /** Niveau d’études déclaré dans le questionnaire (libellé brut trimé). */
 export function niveauEtudeDepuisReponses(reponses: unknown): string {
-  if (!reponses || typeof reponses !== "object" || Array.isArray(reponses)) {
-    return "";
-  }
-  const obj = reponses as Record<string, unknown>;
+  const obj = normalizeReponses(reponses);
+  if (!obj) return "";
   for (const key of NIVEAU_ETUDE_KEYS) {
     const v = stringFromValue(obj[key]);
     if (v) return v;
