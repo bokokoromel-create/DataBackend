@@ -6,7 +6,7 @@ API Node.js (Express 5 + Prisma 7 + Supabase Auth/Storage) qui sert le front Nex
 - **Données** : PostgreSQL via Prisma (driver adapter `@prisma/adapter-pg`)
 - **Fichiers** : Supabase Storage (diplômes privés, images d’événements publiques)
 - **Temps réel** : Server-Sent Events (`GET /events`)
-- **Version** : `1.2.0` (cf. `package.json` et `GET /health`)
+- **Version** : `1.3.0` (cf. `package.json` et `GET /health`)
 
 ---
 
@@ -20,7 +20,7 @@ npm run seed:zones         # peuple le référentiel des zones administratives (
 npm run dev                # http://localhost:4000 (nodemon + ts-node)
 ```
 
-Vérification : `GET /health` → `{"status":"ok","version":"1.2.0"}`.
+Vérification : `GET /health` → `{"status":"ok","version":"1.3.0"}`.
 
 Sur une base déjà en prod (comptes existants avant `ZoneAdministrative`), lancer aussi
 `npm run backfill:zones` une fois après le déploiement pour résoudre `zoneAdministrativeId`
@@ -208,8 +208,8 @@ Migrations : voir `prisma/migrations/`.
 ### Image Docker (Railway / Docker Hub)
 
 ```bash
-docker build --build-arg API_VERSION=$(node -p "require('./package.json').version") -t datahorizon-api:1.2.0 .
-docker run --env-file .env -p 4000:4000 datahorizon-api:1.2.0
+docker build --build-arg API_VERSION=$(node -p "require('./package.json').version") -t datahorizon-api:1.3.0 .
+docker run --env-file .env -p 4000:4000 datahorizon-api:1.3.0
 ```
 
 Le conteneur exécute `npx prisma migrate deploy` puis `node dist/index.js`. Healthcheck Docker : `GET /health`.

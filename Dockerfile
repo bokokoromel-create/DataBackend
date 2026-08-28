@@ -3,12 +3,12 @@
 # runtime + node_modules prod en stage 2.
 #
 # Build :
-#   docker build --build-arg API_VERSION=$(node -p "require('./package.json').version") -t datahorizon-api:1.2.0 .
+#   docker build --build-arg API_VERSION=$(node -p "require('./package.json').version") -t datahorizon-api:1.3.0 .
 # Run :
-#   docker run --env-file .env -p 4000:4000 datahorizon-api:1.2.0
+#   docker run --env-file .env -p 4000:4000 datahorizon-api:1.3.0
 
 ARG NODE_IMAGE=node:22-alpine
-ARG API_VERSION=1.2.0
+ARG API_VERSION=1.3.0
 
 ############################################
 # Stage 1 — install deps + compile TS

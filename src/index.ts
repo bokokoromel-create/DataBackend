@@ -20,7 +20,7 @@ import { attachSseClient } from "./events/sse";
 import { supabase } from "./lib/supabase";
 import { prisma } from "./lib/prisma";
 
-const API_VERSION = "1.2.0";
+const API_VERSION = "1.3.0";
 
 const app = express();
 
