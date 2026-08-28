@@ -11,6 +11,7 @@ import {
 import { parseProfilPatch } from "../lib/profilPatch";
 import { parseProfilProvision } from "../lib/profilProvision";
 import { questionnaireEstComplet } from "../lib/questionnaireFields";
+import { resolveZoneAdministrativeId } from "../lib/zoneAdministrative";
 import { prisma } from "../lib/prisma";
 import { requireAuth } from "../middleware/auth";
 
@@ -186,9 +187,34 @@ router.patch("/", requireAuth, async (req, res) => {
     });
   }
 
+  /* Recalcule la zone administrative si ville/arrondissement changent, ou pour
+     backfiller les profils créés avant l'introduction de ZoneAdministrative. */
+  let zoneAdministrativeId: string | null | undefined;
+  if (
+    "ville" in parsed.data ||
+    "arrondissement" in parsed.data ||
+    !existing.zoneAdministrativeId
+  ) {
+    const villeFinale =
+      typeof parsed.data.ville === "string" ? parsed.data.ville : existing.ville;
+    const arrondissementFinal =
+      "arrondissement" in parsed.data
+        ? (parsed.data.arrondissement as string | null)
+        : existing.arrondissement;
+    zoneAdministrativeId = await resolveZoneAdministrativeId(
+      villeFinale,
+      arrondissementFinal,
+    );
+  }
+
+  const dataMiseAJour: Prisma.UserUncheckedUpdateInput = {
+    ...parsed.data,
+    ...(zoneAdministrativeId !== undefined ? { zoneAdministrativeId } : {}),
+  };
+
   await prisma.user.update({
     where: { id: existing.id },
-    data: parsed.data,
+    data: dataMiseAJour,
   });
 
   const user = await loadUser(existing.supabaseId);

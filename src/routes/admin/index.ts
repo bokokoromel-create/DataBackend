@@ -31,6 +31,8 @@ import sondagesRoutes from "./sondages";
 import diplomesRoutes from "./diplomes";
 import opportunitesRoutes from "./opportunites";
 import rapportsRoutes from "./rapports";
+import zonesRoutes from "./zones";
+import carteRoutes from "./carte";
 
 const router = Router();
 
@@ -39,6 +41,8 @@ router.use("/sondages", sondagesRoutes);
 router.use("/diplomes", diplomesRoutes);
 router.use("/opportunites", opportunitesRoutes);
 router.use("/rapports", rapportsRoutes);
+router.use("/zones", zonesRoutes);
+router.use("/carte", carteRoutes);
 
 router.post("/register", async (req, res) => {
   if (

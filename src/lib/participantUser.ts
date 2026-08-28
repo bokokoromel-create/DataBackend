@@ -2,6 +2,7 @@ import type { Request } from "express";
 import type { User } from "@prisma/client";
 import type { User as SupabaseAuthUser } from "@supabase/supabase-js";
 import { prisma } from "./prisma";
+import { resolveZoneAdministrativeId } from "./zoneAdministrative";
 
 export type ParticipantCreateInput = {
   supabaseId: string;
@@ -43,7 +44,11 @@ export async function findParticipantForAuth(
 export async function createParticipantUser(
   data: ParticipantCreateInput,
 ): Promise<User> {
-  return prisma.user.create({ data });
+  const zoneAdministrativeId = await resolveZoneAdministrativeId(
+    data.ville,
+    data.arrondissement,
+  );
+  return prisma.user.create({ data: { ...data, zoneAdministrativeId } });
 }
 
 export function isAuthEmailAlreadyRegistered(message: string): boolean {

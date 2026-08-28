@@ -7,24 +7,61 @@ datasource db {
 }
 
 model User {
-  id                       String                    @id @default(uuid())
-  supabaseId               String                    @unique
-  prenom                   String
-  nom                      String
-  email                    String                    @unique
-  ville                    String
-  arrondissement           String?
-  telephone                String?
-  age                      Int?
-  sexe                     String?
-  lastActiveAt             DateTime?
-  createdAt                DateTime                  @default(now())
-  questionnaire            Questionnaire?
-  sondageReponses          SondageReponse[]
-  diplome                  Diplome?
-  gamification             UserGamification?
-  publicationReactions     PublicationReaction[]
-  publicationCommentaires  PublicationCommentaire[]
+  id                      String                   @id @default(uuid())
+  supabaseId              String                   @unique
+  prenom                  String
+  nom                     String
+  email                   String                   @unique
+  ville                   String
+  arrondissement          String?
+  telephone               String?
+  age                     Int?
+  sexe                    String?
+  lastActiveAt            DateTime?
+  createdAt               DateTime                 @default(now())
+  questionnaire           Questionnaire?
+  sondageReponses         SondageReponse[]
+  diplome                 Diplome?
+  gamification            UserGamification?
+  publicationReactions    PublicationReaction[]
+  publicationCommentaires PublicationCommentaire[]
+  /**
+   * Zone la plus précise résolue depuis `ville`/`arrondissement` (carte admin).
+   */
+  zoneAdministrativeId    String?
+  zoneAdministrative      ZoneAdministrative?      @relation(fields: [zoneAdministrativeId], references: [id])
+}
+
+enum TypeZoneAdministrative {
+  SECTEUR
+  QUARTIER
+}
+
+/**
+ * Référentiel géographique hiérarchique (ville → secteur → quartier), utilisé
+ * pour la carte admin. Table auto-référencée et réutilisable plus tard par
+ * d'autres modèles (publications, matching) via une simple FK supplémentaire.
+ */
+model ZoneAdministrative {
+  id           String                 @id @default(uuid())
+  type         TypeZoneAdministrative
+  nom          String
+  ville        String
+  parentId     String?
+  parent       ZoneAdministrative?    @relation("HierarchieZone", fields: [parentId], references: [id])
+  enfants      ZoneAdministrative[]   @relation("HierarchieZone")
+  /**
+   * Coordonnée approximative de la zone (centroïde), pas une position individuelle.
+   */
+  latitude     Float?
+  longitude    Float?
+  actif        Boolean                @default(true)
+  createdAt    DateTime               @default(now())
+  utilisateurs User[]
+
+  @@unique([ville, type, nom])
+  @@index([parentId])
+  @@index([ville, type])
 }
 
 model Diplome {

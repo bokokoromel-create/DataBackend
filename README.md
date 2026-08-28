@@ -16,10 +16,15 @@ API Node.js (Express 5 + Prisma 7 + Supabase Auth/Storage) qui sert le front Nex
 cp .env.example .env       # remplir les valeurs (cf. § Variables)
 npm install                # installe Prisma + dépendances et exécute prisma generate
 npx prisma migrate deploy  # applique les migrations sur la base
+npm run seed:zones         # peuple le référentiel des zones administratives (carte admin)
 npm run dev                # http://localhost:4000 (nodemon + ts-node)
 ```
 
 Vérification : `GET /health` → `{"status":"ok","version":"1.2.0"}`.
+
+Sur une base déjà en prod (comptes existants avant `ZoneAdministrative`), lancer aussi
+`npm run backfill:zones` une fois après le déploiement pour résoudre `zoneAdministrativeId`
+sur les utilisateurs déjà inscrits.
 
 ### Scripts npm
 
@@ -34,6 +39,9 @@ Vérification : `GET /health` → `{"status":"ok","version":"1.2.0"}`.
 | `npm run probe:storage` | Sonde locale : upload/list/delete sur le bucket diplômes   |
 | `npm run probe:rapports`| Sonde HTTP : `GET /admin/rapports/<periode>`               |
 | `npm run probe:diplome-upload` | Sonde HTTP : flux complet `POST /me/diplome`        |
+| `npm run probe:carte`   | Sonde HTTP : `GET /admin/zones` + `GET /admin/carte`       |
+| `npm run seed:zones`    | Peuple les 15 secteurs administratifs (Brazzaville/Pointe-Noire) |
+| `npm run backfill:zones`| Résout `zoneAdministrativeId` pour les comptes existants   |
 
 ---
 
@@ -103,6 +111,8 @@ Les buckets Supabase Storage sont créés automatiquement au premier upload. Inu
 | `GET`        | `/admin/diplomes/:id`                  | Détail d’un diplôme                                    |
 | `GET/POST`   | `/admin/opportunites`                  | Liste / crée une opportunité                           |
 | `GET`        | `/admin/rapports/:periode`             | Export CSV mensuel (`YYYY-MM`)                         |
+| `GET`        | `/admin/zones?ville=`                  | Référentiel ville → secteur (carte admin)              |
+| `GET`        | `/admin/carte?ville=&secteurId=&quartierId=` | Compteurs agrégés par zone + besoin dominant (seuil confidentialité = 3) |
 
 ### Temps réel (SSE)
 
@@ -177,7 +187,7 @@ L’image est uploadée dans le bucket `evenements` (créé auto, public). En ca
 
 | Modèle                    | Notes                                                                  |
 |---------------------------|------------------------------------------------------------------------|
-| `User`                    | `supabaseId` unique, `lastActiveAt` pour le MAU, `age`/`sexe` optionnels |
+| `User`                    | `supabaseId` unique, `lastActiveAt` pour le MAU, `age`/`sexe` optionnels, `zoneAdministrativeId` optionnel |
 | `Diplome`                 | 1-1 `User`, `storagePath` Supabase Storage                             |
 | `Questionnaire`           | 1-1 `User`, `reponses Json`                                            |
 | `Evenement`               | `imageUrl`, `categorie`, `createdAt` (= date de publication)           |
@@ -186,6 +196,7 @@ L’image est uploadée dans le bucket `evenements` (créé auto, public). En ca
 | `PublicationCommentaire`  | Commentaires libres associés à une publication                          |
 | `Opportunite`             | `type`, `titre`, `echeanceAt`, `lien`, `imageUrl`                      |
 | `UserGamification`        | Compteurs `publicationsConsultees`, `consultationsCompletees`, `membresInvites` |
+| `ZoneAdministrative`      | Référentiel `ville` → `SECTEUR`/`QUARTIER` (hiérarchie `parentId`), centroïde `latitude`/`longitude`, pour la carte admin |
 | `AdminUser`               | Compte admin lié à un Supabase Auth user                               |
 
 Migrations : voir `prisma/migrations/`.
@@ -236,6 +247,10 @@ TOKEN=$(curl -s -X POST "$API/admin/login" -H "Content-Type: application/json" \
 
 curl "$API/admin/stats?ageMin=18&sexe=femme" -H "Authorization: Bearer $TOKEN"
 curl "$API/admin/rapports/2026-06" -H "Authorization: Bearer $TOKEN" -o rapport.csv
+
+# Carte admin (zones)
+curl "$API/admin/zones?ville=Brazzaville" -H "Authorization: Bearer $TOKEN"
+curl "$API/admin/carte?ville=Brazzaville" -H "Authorization: Bearer $TOKEN"
 ```
 
 ---

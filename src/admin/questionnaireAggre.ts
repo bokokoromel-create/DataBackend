@@ -212,7 +212,7 @@ function incrementMap(map: Map<string, number>, labels: string[]) {
   }
 }
 
-function modeLabel(counts: Map<string, number>): string {
+export function modeLabel(counts: Map<string, number>): string {
   let best = "Non renseigné";
   let bestCount = 0;
   for (const [label, count] of counts) {

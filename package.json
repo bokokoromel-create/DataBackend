@@ -15,7 +15,10 @@
     "probe:rapports": "ts-node scripts/probe-rapports.ts",
     "probe:diplome-upload": "ts-node scripts/probe-diplome-upload.ts",
     "probe:http": "ts-node scripts/probe-http.ts",
-    "probe:questionnaires": "ts-node scripts/probe-questionnaires.ts"
+    "probe:questionnaires": "ts-node scripts/probe-questionnaires.ts",
+    "probe:carte": "ts-node scripts/probe-carte.ts",
+    "seed:zones": "ts-node scripts/seed-zones-administratives.ts",
+    "backfill:zones": "ts-node scripts/backfill-zones-utilisateurs.ts"
   },
   "keywords": [
     "datahorizon",

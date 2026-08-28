@@ -126,6 +126,42 @@ export interface ParticipantResume {
   questionnaireComplet: boolean;
 }
 
+/** Ligne renvoyée par `GET /admin/zones` — référentiel plat ville → secteur → quartier. */
+export interface ZoneAdministrativeApi {
+  id: string;
+  type: "SECTEUR" | "QUARTIER";
+  nom: string;
+  ville: string;
+  parentId: string | null;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+/** Une pastille de la carte admin : soit une zone réelle, soit le regroupement « autres zones » (seuil confidentialité). */
+export interface StatZoneCarte {
+  /** `null` uniquement pour la pastille de regroupement `zoneRegroupee: true`. */
+  zoneId: string | null;
+  nom: string;
+  type: "SECTEUR" | "QUARTIER" | null;
+  ville: string | null;
+  parentId: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  count: number;
+  besoinPrincipalDominant: string;
+  /** `true` pour la pastille « Autres zones » regroupant les zones sous le seuil de confidentialité. */
+  zoneRegroupee: boolean;
+}
+
+/** Réponse `GET /admin/carte` — comptage d'utilisateurs par zone (toujours agrégé, jamais nominatif). */
+export interface AdminCarteResponse {
+  seuilConfidentialite: number;
+  zones: StatZoneCarte[];
+  totalUtilisateursLocalises: number;
+  totalUtilisateursNonLocalises: number;
+  generatedAt: string;
+}
+
 /** Événements SSE (`GET /events?scope=admin&token=...`). */
 export type SseEvent =
   | { type: "hello"; data: { scope: "public" | "admin" } }
